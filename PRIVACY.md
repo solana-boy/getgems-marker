@@ -10,4 +10,4 @@ No third parties receive any information.
 
 The extension operates entirely locally in your browser.
 
-If you have any questions: solana-boy@gmail.com
+If you have any questions: lindataylor7673206@gmail.com
