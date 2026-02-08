@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Getgems Marketplace Marker",
+  "version": "1.2.0",
+  "description": "Marks NFT listings with Getgems or Fragment logo based on marketplace. Helps identify listing source and associated fees.",
+  "author": "NFT Tools",
+  "homepage_url": "https://github.com/solana-boy/getgems-marker",
+  "permissions": [],
+  "host_permissions": [
+    "https://getgems.io/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://getgems.io/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js", "getgems.svg", "fragment.svg"],
+      "matches": ["https://getgems.io/*"]
+    }
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "minimum_chrome_version": "110"
+}
