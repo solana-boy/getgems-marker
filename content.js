@@ -7,6 +7,9 @@
   // Store NFT data received from injected script
   let nftData = {};
 
+  // Store current user ID
+  let currentUserId = null;
+
   // Inject the fetch interceptor into the page context
   function injectScript() {
     const script = document.createElement('script');
@@ -23,6 +26,12 @@
   // Listen for messages from injected script (page context)
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
+    if (event.data?.type === 'GETGEMS_MARKER_CURRENT_USER') {
+      currentUserId = event.data.userId;
+      console.log('[Getgems Marker] Received current user ID:', currentUserId);
+      // Re-apply markers in case NFT data arrived before user ID
+      updateMarkers();
+    }
     if (event.data?.type === 'GETGEMS_MARKER_NFT_DATA') {
       console.log('[Getgems Marker] Received NFT data via postMessage:', Object.keys(event.data.data).length, 'items');
       nftData = event.data.data;
@@ -163,17 +172,23 @@
     let marked = 0;
 
     containers.forEach(container => {
-      if (container.querySelector('.marketplace-marker')) return;
-
       const nftAddress = extractNftAddress(container);
       if (!nftAddress) return;
 
       const info = nftData[nftAddress];
+      if (!info) return;
 
-      if (info) {
-        addMarkerToCard(container, info.marketplace);
-        marked++;
+      const isOwn = currentUserId && info.ownerId && info.ownerId === currentUserId;
+
+      // Update own-item highlight even if marker already exists
+      if (isOwn && !container.classList.contains('own-nft-item')) {
+        container.classList.add('own-nft-item');
       }
+
+      if (container.querySelector('.marketplace-marker')) return;
+
+      addMarkerToCard(container, info.marketplace);
+      marked++;
     });
 
     if (marked > 0) {

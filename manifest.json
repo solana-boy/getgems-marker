@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Getgems Marketplace Marker",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Marks NFT listings with Getgems or Fragment logo based on marketplace. Helps identify listing source and associated fees.",
   "author": "NFT Tools",
   "homepage_url": "https://github.com/solana-boy/getgems-marker",

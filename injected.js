@@ -6,9 +6,12 @@
 
   // Store NFT marketplace data
   const nftMarketplaceData = {};
-  
+
   // Store headers from successful GraphQL requests
   let capturedHeaders = null;
+
+  // Store current user ID from getCurrentUser response
+  let currentUserId = null;
 
   // Override fetch to intercept GraphQL responses
   const originalFetch = window.fetch;
@@ -127,10 +130,13 @@
               const saleRef = itemValue.sale?.__ref;
               if (saleRef && saleRef.includes(saleAddress)) {
                 if (!nftMarketplaceData[itemValue.address]) {
+                  const ownerRef = itemValue.owner?.__ref;
+                  const ownerData = ownerRef ? cache[ownerRef] : itemValue.owner;
                   nftMarketplaceData[itemValue.address] = {
                     name: itemValue.name,
                     marketplace: marketplace,
-                    kind: itemValue.kind || 'unknown'
+                    kind: itemValue.kind || 'unknown',
+                    ownerId: ownerData?.id || null
                   };
                   addedCount++;
                   console.log('[Getgems Marker] Extracted:', itemValue.name, '| Marketplace:', marketplace);
@@ -154,10 +160,13 @@
           }
 
           if (marketplace) {
+            const ownerRef = value.owner?.__ref;
+            const ownerData = ownerRef ? cache[ownerRef] : value.owner;
             nftMarketplaceData[value.address] = {
               name: value.name,
               marketplace: marketplace,
-              kind: value.kind || 'unknown'
+              kind: value.kind || 'unknown',
+              ownerId: ownerData?.id || null
             };
             addedCount++;
             console.log('[Getgems Marker] Extracted:', value.name, '| Marketplace:', marketplace);
@@ -185,10 +194,13 @@
           }
 
           if (marketplace) {
+            const ownerRef = nftItem.owner?.__ref;
+            const ownerData = ownerRef ? cache[ownerRef] : nftItem.owner;
             nftMarketplaceData[nftItem.address] = {
               name: nftItem.name,
               marketplace: marketplace,
-              kind: nftItem.kind || 'unknown'
+              kind: nftItem.kind || 'unknown',
+              ownerId: ownerData?.id || null
             };
             addedCount++;
             console.log('[Getgems Marker] Extracted from pageProps:', nftItem.name, '| Marketplace:', marketplace);
@@ -216,7 +228,8 @@
               nftMarketplaceData[nftItem.address] = {
                 name: nftItem.name,
                 marketplace: marketplace,
-                kind: nftItem.kind || 'unknown'
+                kind: nftItem.kind || 'unknown',
+                ownerId: nftItem.owner?.id || null
               };
               addedCount++;
               console.log('[Getgems Marker] Extracted from dehydratedState:', nftItem.name, '| Marketplace:', marketplace);
@@ -309,6 +322,9 @@
                 address
                 name
                 kind
+                owner {
+                  id
+                }
                 sale {
                   __typename
                   ... on NftSaleFixPrice {
@@ -373,6 +389,9 @@
             address
             name
             kind
+            owner {
+              id
+            }
             sale {
               __typename
               ... on NftSaleFixPrice {
@@ -433,10 +452,11 @@
           nftMarketplaceData[item.address] = {
             name: item.name,
             marketplace: marketplace,
-            kind: item.kind || 'unknown'
+            kind: item.kind || 'unknown',
+            ownerId: item.owner?.id || null
           };
           console.log('[Getgems Marker] Fetched single NFT:', item.name, '| Marketplace:', marketplace);
-          
+
           window.postMessage({
             type: 'GETGEMS_MARKER_NFT_DATA',
             data: nftMarketplaceData
@@ -451,6 +471,17 @@
 
   function processGraphQLResponse(data, operationName) {
     try {
+      // Capture current user ID from getCurrentUser response
+      if (operationName === 'getCurrentUser' && data?.data?.me?.id) {
+        currentUserId = data.data.me.id;
+        console.log('[Getgems Marker] Captured current user ID:', currentUserId);
+        window.postMessage({
+          type: 'GETGEMS_MARKER_CURRENT_USER',
+          userId: currentUserId
+        }, '*');
+        return;
+      }
+
       const items = findNftItems(data);
 
       if (items.length === 0) return;
@@ -473,7 +504,8 @@
             nftMarketplaceData[item.address] = {
               name: item.name,
               marketplace: marketplace,
-              kind: item.kind || 'unknown'
+              kind: item.kind || 'unknown',
+              ownerId: item.owner?.id || null
             };
             addedCount++;
           }
