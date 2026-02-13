@@ -87,8 +87,7 @@
 
 /* Own NFT highlight */
 .own-nft-item {
-  outline: 2px solid #22c55e !important;
-  outline-offset: -2px !important;
+  box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.4), 0 0 12px rgba(34, 197, 94, 0.15) !important;
   border-radius: 12px !important;
 }
 
