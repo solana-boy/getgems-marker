@@ -68,6 +68,9 @@
   function detectMarketplace(sale) {
     if (!sale) return null;
 
+    // Jetton and other non-TON fixed-price sales should always be treated as Getgems listings
+    if (sale.currency && sale.currency !== 'TON') return 'getgems';
+
     // 1. Explicit marketplace field (auctions have this)
     if (sale.marketplace === 'GETGEMS') return 'getgems';
     if (sale.marketplace === 'FRAGMENT') return 'fragment';
@@ -83,6 +86,97 @@
     }
 
     return null;
+  }
+
+  function formatTonPrice(fullPrice) {
+    if (typeof fullPrice !== 'string' || !/^\d+$/.test(fullPrice)) return null;
+
+    const nanoTonScale = 1000000000n;
+    const nanoTonValue = BigInt(fullPrice);
+    const wholeTon = nanoTonValue / nanoTonScale;
+    const fractionalTon = (nanoTonValue % nanoTonScale).toString().padStart(9, '0');
+
+    if (fractionalTon === '000000000') {
+      return wholeTon.toString();
+    }
+
+    return `${wholeTon.toString()}.${fractionalTon.replace(/0+$/, '')}`;
+  }
+
+  function extractTonPriceData(sale) {
+    if (!sale || sale.currency !== 'TON' || typeof sale.fullPrice !== 'string' || !/^\d+$/.test(sale.fullPrice)) {
+      return {};
+    }
+
+    const nanoTonScale = 1000000000n;
+    const nanoTonValue = BigInt(sale.fullPrice);
+    const fullPriceTon = formatTonPrice(sale.fullPrice);
+
+    if (!fullPriceTon) {
+      return {};
+    }
+
+    return {
+      fullPriceNano: sale.fullPrice,
+      fullPriceTon: fullPriceTon,
+      hasOneNanoTonTail: nanoTonValue % nanoTonScale === 1n
+    };
+  }
+
+  function resolveSaleData(item, cache = null) {
+    if (!item?.sale) return null;
+
+    if (item.sale.__ref && cache?.[item.sale.__ref]) {
+      return cache[item.sale.__ref];
+    }
+
+    return item.sale;
+  }
+
+  function buildNftDataEntry(item, marketplace, ownerId, sale) {
+    const entry = {
+      ...extractTonPriceData(sale)
+    };
+
+    if (item?.name) {
+      entry.name = item.name;
+    }
+
+    if (marketplace) {
+      entry.marketplace = marketplace;
+    }
+
+    if (item?.kind) {
+      entry.kind = item.kind;
+    }
+
+    if (ownerId !== undefined) {
+      entry.ownerId = ownerId;
+    }
+
+    return entry;
+  }
+
+  function upsertNftData(address, entry) {
+    if (!address || !entry) return false;
+
+    const isNew = !nftMarketplaceData[address];
+    nftMarketplaceData[address] = {
+      ...(nftMarketplaceData[address] || {}),
+      ...entry
+    };
+
+    return isNew;
+  }
+
+  function postNftData() {
+    if (Object.keys(nftMarketplaceData).length === 0) return;
+
+    window.postMessage({
+      type: 'GETGEMS_MARKER_NFT_DATA',
+      data: nftMarketplaceData
+    }, '*');
+    console.log('[Getgems Marker] Sent data to content script');
   }
 
   // Listen for requests from content script
@@ -118,59 +212,31 @@
 
       let addedCount = 0;
 
-      // Look for sale entries referenced by NftItems (NftSaleFixPrice and NftSaleAuction)
+      // Check NftItem entries in normalized Apollo cache
       for (const [key, value] of Object.entries(cache)) {
-        if ((key.startsWith('NftSaleFixPrice:') || key.startsWith('NftSaleAuction:')) && value.address) {
-          const saleAddress = value.address;
-          const marketplace = detectMarketplace(value);
-          if (!marketplace) continue;
+        if (!key.startsWith('NftItem:') || !value.address) continue;
 
-          for (const [itemKey, itemValue] of Object.entries(cache)) {
-            if (itemKey.startsWith('NftItem:') && itemValue.address) {
-              const saleRef = itemValue.sale?.__ref;
-              if (saleRef && saleRef.includes(saleAddress)) {
-                if (!nftMarketplaceData[itemValue.address]) {
-                  const ownerRef = itemValue.owner?.__ref;
-                  const ownerData = ownerRef ? cache[ownerRef] : itemValue.owner;
-                  nftMarketplaceData[itemValue.address] = {
-                    name: itemValue.name,
-                    marketplace: marketplace,
-                    kind: itemValue.kind || 'unknown',
-                    ownerId: ownerData?.id || null
-                  };
-                  addedCount++;
-                  console.log('[Getgems Marker] Extracted:', itemValue.name, '| Marketplace:', marketplace);
-                }
-              }
-            }
-          }
+        const saleData = resolveSaleData(value, cache);
+        let marketplace = null;
+
+        if (value.kind === 'OffchainNft') {
+          marketplace = 'getgems';
+        } else if (saleData) {
+          marketplace = detectMarketplace(saleData);
         }
-      }
 
-      // Check NftItem entries with inline sale data (TelemintAuction) or OffchainNft kind
-      for (const [key, value] of Object.entries(cache)) {
-        if (key.startsWith('NftItem:') && value.address && !nftMarketplaceData[value.address]) {
-          let marketplace = null;
+        if (!marketplace) continue;
 
-          if (value.kind === 'OffchainNft') {
-            marketplace = 'getgems';
-          } else if (value.sale && !value.sale.__ref) {
-            // Inline sale object (e.g. TelemintAuction)
-            marketplace = detectMarketplace(value.sale);
-          }
+        const ownerRef = value.owner?.__ref;
+        const ownerData = ownerRef ? cache[ownerRef] : value.owner;
+        const isNew = upsertNftData(
+          value.address,
+          buildNftDataEntry(value, marketplace, ownerData?.id, saleData)
+        );
 
-          if (marketplace) {
-            const ownerRef = value.owner?.__ref;
-            const ownerData = ownerRef ? cache[ownerRef] : value.owner;
-            nftMarketplaceData[value.address] = {
-              name: value.name,
-              marketplace: marketplace,
-              kind: value.kind || 'unknown',
-              ownerId: ownerData?.id || null
-            };
-            addedCount++;
-            console.log('[Getgems Marker] Extracted:', value.name, '| Marketplace:', marketplace);
-          }
+        if (isNew) {
+          addedCount++;
+          console.log('[Getgems Marker] Extracted:', value.name, '| Marketplace:', marketplace);
         }
       }
 
@@ -179,30 +245,25 @@
         console.log('[Getgems Marker] Searching for NFT data in pageProps...');
         const nftItem = findNftItemInObject(pageProps);
         if (nftItem && nftItem.address) {
+          const saleData = resolveSaleData(nftItem, cache);
           let marketplace = null;
 
           if (nftItem.kind === 'OffchainNft') {
             marketplace = 'getgems';
-          } else if (nftItem.sale) {
-            // Try direct detection first
-            marketplace = detectMarketplace(nftItem.sale);
-            // If sale has a __ref, resolve it from cache
-            if (!marketplace && nftItem.sale.__ref) {
-              const refEntry = cache[nftItem.sale.__ref];
-              if (refEntry) marketplace = detectMarketplace(refEntry);
-            }
+          } else if (saleData) {
+            marketplace = detectMarketplace(saleData);
           }
 
           if (marketplace) {
             const ownerRef = nftItem.owner?.__ref;
             const ownerData = ownerRef ? cache[ownerRef] : nftItem.owner;
-            nftMarketplaceData[nftItem.address] = {
-              name: nftItem.name,
-              marketplace: marketplace,
-              kind: nftItem.kind || 'unknown',
-              ownerId: ownerData?.id || null
-            };
-            addedCount++;
+            const isNew = upsertNftData(
+              nftItem.address,
+              buildNftDataEntry(nftItem, marketplace, ownerData?.id, saleData)
+            );
+            if (isNew) {
+              addedCount++;
+            }
             console.log('[Getgems Marker] Extracted from pageProps:', nftItem.name, '| Marketplace:', marketplace);
           } else {
             console.log('[Getgems Marker] Found NFT but could not determine marketplace:', nftItem.name, nftItem);
@@ -216,22 +277,23 @@
         for (const query of pageProps.dehydratedState.queries) {
           const nftItem = findNftItemInObject(query.state?.data);
           if (nftItem && nftItem.address && nftItem.sale) {
+            const saleData = resolveSaleData(nftItem, cache);
             let marketplace = null;
 
             if (nftItem.kind === 'OffchainNft') {
               marketplace = 'getgems';
             } else {
-              marketplace = detectMarketplace(nftItem.sale);
+              marketplace = detectMarketplace(saleData);
             }
 
-            if (marketplace && !nftMarketplaceData[nftItem.address]) {
-              nftMarketplaceData[nftItem.address] = {
-                name: nftItem.name,
-                marketplace: marketplace,
-                kind: nftItem.kind || 'unknown',
-                ownerId: nftItem.owner?.id || null
-              };
-              addedCount++;
+            if (marketplace) {
+              const isNew = upsertNftData(
+                nftItem.address,
+                buildNftDataEntry(nftItem, marketplace, nftItem.owner?.id, saleData)
+              );
+              if (isNew) {
+                addedCount++;
+              }
               console.log('[Getgems Marker] Extracted from dehydratedState:', nftItem.name, '| Marketplace:', marketplace);
             }
           }
@@ -240,13 +302,7 @@
 
       console.log('[Getgems Marker] Extracted', addedCount, 'NFTs from page data. Total:', Object.keys(nftMarketplaceData).length);
 
-      if (Object.keys(nftMarketplaceData).length > 0) {
-        window.postMessage({
-          type: 'GETGEMS_MARKER_NFT_DATA',
-          data: nftMarketplaceData
-        }, '*');
-        console.log('[Getgems Marker] Sent data to content script');
-      }
+      postNftData();
 
     } catch (e) {
       console.error('[Getgems Marker] Error extracting page data:', e);
@@ -297,7 +353,7 @@
       // On /user/ADDRESS page, fetch data for individual NFTs by address
       console.log('[Getgems Marker] Fetching data for', addresses.length, 'NFTs on user page');
       for (const addr of addresses) {
-        if (!nftMarketplaceData[addr]) {
+        if (!nftMarketplaceData[addr] || !nftMarketplaceData[addr].fullPriceNano) {
           await fetchSingleNftData(addr);
         }
       }
@@ -449,18 +505,13 @@
         }
 
         if (marketplace) {
-          nftMarketplaceData[item.address] = {
-            name: item.name,
-            marketplace: marketplace,
-            kind: item.kind || 'unknown',
-            ownerId: item.owner?.id || null
-          };
+          upsertNftData(
+            item.address,
+            buildNftDataEntry(item, marketplace, item.owner?.id, resolveSaleData(item))
+          );
           console.log('[Getgems Marker] Fetched single NFT:', item.name, '| Marketplace:', marketplace);
 
-          window.postMessage({
-            type: 'GETGEMS_MARKER_NFT_DATA',
-            data: nftMarketplaceData
-          }, '*');
+          postNftData();
         }
       }
 
@@ -492,22 +543,23 @@
 
       items.forEach(item => {
         if (item.address) {
+          const saleData = resolveSaleData(item);
           let marketplace = null;
 
           if (item.kind === 'OffchainNft') {
             marketplace = 'getgems';
-          } else if (item.sale) {
-            marketplace = detectMarketplace(item.sale);
+          } else if (saleData) {
+            marketplace = detectMarketplace(saleData);
           }
 
-          if (marketplace && !nftMarketplaceData[item.address]) {
-            nftMarketplaceData[item.address] = {
-              name: item.name,
-              marketplace: marketplace,
-              kind: item.kind || 'unknown',
-              ownerId: item.owner?.id || null
-            };
-            addedCount++;
+          if (marketplace) {
+            const isNew = upsertNftData(
+              item.address,
+              buildNftDataEntry(item, marketplace, item.owner?.id, saleData)
+            );
+            if (isNew) {
+              addedCount++;
+            }
           }
         }
       });
@@ -515,11 +567,7 @@
       console.log('[Getgems Marker] Added', addedCount, 'new NFTs. Total:', Object.keys(nftMarketplaceData).length);
 
       if (addedCount > 0 || Object.keys(nftMarketplaceData).length > 0) {
-        window.postMessage({
-          type: 'GETGEMS_MARKER_NFT_DATA',
-          data: nftMarketplaceData
-        }, '*');
-        console.log('[Getgems Marker] Sent data to content script');
+        postNftData();
       }
 
     } catch (e) {
