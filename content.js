@@ -10,6 +10,9 @@
   // Store current user ID
   let currentUserId = null;
 
+  // Track all listings encountered on the current page so floors survive virtualized scrolling.
+  let marketplaceFloorState = null;
+
   // Inject the fetch interceptor into the page context
   function injectScript() {
     const script = document.createElement('script');
@@ -199,16 +202,57 @@
     return `Exact API price: ${info.fullPriceTon} TON (${info.fullPriceNano} nanoTON)`;
   }
 
-  function collectCurrentPageListings() {
-    const listings = [];
-    const seen = new Set();
+  function createMarketplaceFloorState(pageKey) {
+    return {
+      pageKey,
+      trackedAddresses: new Set()
+    };
+  }
+
+  function getMarketplaceFloorPageKey() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('modalNft');
+
+    const search = url.searchParams.toString();
+    return `${url.pathname}${search ? `?${search}` : ''}`;
+  }
+
+  function ensureMarketplaceFloorState() {
+    const pageKey = getMarketplaceFloorPageKey();
+
+    if (!marketplaceFloorState || marketplaceFloorState.pageKey !== pageKey) {
+      marketplaceFloorState = createMarketplaceFloorState(pageKey);
+    }
+
+    return marketplaceFloorState;
+  }
+
+  function trackCurrentPageListingAddresses(state) {
+    let foundCards = false;
     const containers = document.querySelectorAll('.NftItemContainer');
 
     containers.forEach(container => {
       const nftAddress = extractNftAddress(container);
-      if (!nftAddress || seen.has(nftAddress)) return;
+      if (!nftAddress) return;
 
-      seen.add(nftAddress);
+      state.trackedAddresses.add(nftAddress);
+      foundCards = true;
+    });
+
+    if (foundCards) return;
+
+    const currentItemAddress = extractCurrentItemPageAddress();
+    if (currentItemAddress) {
+      state.trackedAddresses.add(currentItemAddress);
+    }
+  }
+
+  function collectCurrentPageListings() {
+    const state = ensureMarketplaceFloorState();
+    trackCurrentPageListingAddresses(state);
+
+    const listings = [];
+    state.trackedAddresses.forEach(nftAddress => {
       const info = nftData[nftAddress];
 
       if (!info?.fullPriceNano || !info?.fullPriceTon) return;
@@ -221,40 +265,38 @@
       });
     });
 
-    if (listings.length > 0) {
-      return listings;
-    }
-
-    const currentItemAddress = extractCurrentItemPageAddress();
-    if (!currentItemAddress) return listings;
-
-    const currentItemInfo = nftData[currentItemAddress];
-    if (!currentItemInfo?.fullPriceNano || !currentItemInfo?.fullPriceTon) return listings;
-    if (currentItemInfo.kind === 'OffchainNft') return listings;
-    if (currentItemInfo.marketplace !== 'getgems' && currentItemInfo.marketplace !== 'fragment') return listings;
-
-    return [{
-      address: currentItemAddress,
-      ...currentItemInfo
-    }];
+    return listings;
   }
 
   function computeMarketplaceFloors(listings) {
     const floors = {
       getgems: null,
-      fragment: null
+      fragment: null,
+      mine: null
     };
+
+    function updateFloor(key, listing, priceNano) {
+      const currentFloor = floors[key];
+
+      if (!currentFloor || priceNano < currentFloor.priceNano) {
+        floors[key] = {
+          priceNano: priceNano,
+          priceTon: listing.fullPriceTon,
+          name: listing.name || null,
+          marketplace: listing.marketplace || null
+        };
+      }
+    }
 
     listings.forEach(listing => {
       const priceNano = BigInt(listing.fullPriceNano);
-      const currentFloor = floors[listing.marketplace];
 
-      if (!currentFloor || priceNano < currentFloor.priceNano) {
-        floors[listing.marketplace] = {
-          priceNano: priceNano,
-          priceTon: listing.fullPriceTon,
-          name: listing.name || null
-        };
+      if (listing.marketplace === 'getgems' || listing.marketplace === 'fragment') {
+        updateFloor(listing.marketplace, listing, priceNano);
+      }
+
+      if (currentUserId && listing.ownerId && listing.ownerId === currentUserId) {
+        updateFloor('mine', listing, priceNano);
       }
     });
 
@@ -279,6 +321,22 @@
     if (!panel) {
       panel = document.createElement('section');
       panel.className = 'marketplace-floor-summary';
+      const title = document.createElement('div');
+      title.className = 'marketplace-floor-summary__title';
+      title.textContent = 'Listing floors';
+
+      const subtitle = document.createElement('div');
+      subtitle.className = 'marketplace-floor-summary__subtitle';
+
+      const rows = document.createElement('div');
+      rows.className = 'marketplace-floor-summary__rows';
+      rows.appendChild(createMarketplaceFloorRow('getgems'));
+      rows.appendChild(createMarketplaceFloorRow('fragment'));
+      rows.appendChild(createMarketplaceFloorRow('mine'));
+
+      panel.appendChild(title);
+      panel.appendChild(subtitle);
+      panel.appendChild(rows);
     }
 
     if (panel.previousElementSibling !== anchor) {
@@ -288,33 +346,42 @@
     return panel;
   }
 
-  function createMarketplaceFloorRow(marketplace, floorInfo) {
+  function createMarketplaceFloorRow(marketplace) {
     const row = document.createElement('div');
     row.className = 'marketplace-floor-summary__row';
+    row.dataset.marketplace = marketplace;
 
     const badge = document.createElement('div');
     badge.className = `marketplace-floor-summary__badge marketplace-floor-summary__badge--${marketplace}`;
 
-    const logo = document.createElement('img');
-    logo.className = 'marketplace-floor-summary__logo';
-    logo.src = chrome.runtime.getURL(marketplace === 'getgems' ? 'getgems.svg' : 'fragment.svg');
-    logo.alt = marketplace === 'getgems' ? 'G' : 'F';
-    badge.appendChild(logo);
+    if (marketplace === 'mine') {
+      const badgeText = document.createElement('span');
+      badgeText.className = 'marketplace-floor-summary__badge-text';
+      badgeText.textContent = 'MY';
+      badge.appendChild(badgeText);
+    } else {
+      const logo = document.createElement('img');
+      logo.className = 'marketplace-floor-summary__logo';
+      logo.src = chrome.runtime.getURL(marketplace === 'getgems' ? 'getgems.svg' : 'fragment.svg');
+      logo.alt = marketplace === 'getgems' ? 'G' : 'F';
+      badge.appendChild(logo);
+    }
 
     const labelGroup = document.createElement('div');
     labelGroup.className = 'marketplace-floor-summary__copy';
 
     const label = document.createElement('div');
     label.className = 'marketplace-floor-summary__label';
-    label.textContent = marketplace === 'getgems' ? 'Getgems floor' : 'Fragment floor';
+    label.textContent =
+      marketplace === 'getgems'
+        ? 'Getgems floor'
+        : marketplace === 'fragment'
+          ? 'Fragment floor'
+          : 'My floor';
 
     const value = document.createElement('div');
     value.className = 'marketplace-floor-summary__value';
-    value.textContent = floorInfo ? `${floorInfo.priceTon} TON` : '-';
-
-    if (floorInfo?.name) {
-      value.title = `${floorInfo.name} | ${floorInfo.priceTon} TON`;
-    }
+    value.textContent = '-';
 
     labelGroup.appendChild(label);
     labelGroup.appendChild(value);
@@ -323,6 +390,30 @@
     row.appendChild(labelGroup);
 
     return row;
+  }
+
+  function updateMarketplaceFloorRow(panel, marketplace, floorInfo) {
+    const row = panel.querySelector(`.marketplace-floor-summary__row[data-marketplace="${marketplace}"]`);
+    const value = row?.querySelector('.marketplace-floor-summary__value');
+    if (!value) return;
+
+    const nextText = floorInfo ? `${floorInfo.priceTon} TON` : '-';
+    if (value.textContent !== nextText) {
+      value.textContent = nextText;
+    }
+
+    const marketplaceLabel =
+      floorInfo?.marketplace === 'getgems'
+        ? 'Getgems'
+        : floorInfo?.marketplace === 'fragment'
+          ? 'Fragment'
+          : '';
+    const nextTitle = floorInfo?.name
+      ? `${floorInfo.name} | ${floorInfo.priceTon} TON${marketplaceLabel ? ` | ${marketplaceLabel}` : ''}`
+      : '';
+    if (value.title !== nextTitle) {
+      value.title = nextTitle;
+    }
   }
 
   function updateMarketplaceFloorSummary() {
@@ -341,24 +432,15 @@
     const panel = ensureMarketplaceFloorSummary();
     if (!panel) return;
 
-    panel.replaceChildren();
+    const subtitle = panel.querySelector('.marketplace-floor-summary__subtitle');
+    const nextSubtitle = `Observed listings: ${listings.length}`;
+    if (subtitle && subtitle.textContent !== nextSubtitle) {
+      subtitle.textContent = nextSubtitle;
+    }
 
-    const title = document.createElement('div');
-    title.className = 'marketplace-floor-summary__title';
-    title.textContent = 'Listing floors';
-
-    const subtitle = document.createElement('div');
-    subtitle.className = 'marketplace-floor-summary__subtitle';
-    subtitle.textContent = `Observed listings: ${listings.length}`;
-
-    const rows = document.createElement('div');
-    rows.className = 'marketplace-floor-summary__rows';
-    rows.appendChild(createMarketplaceFloorRow('getgems', floors.getgems));
-    rows.appendChild(createMarketplaceFloorRow('fragment', floors.fragment));
-
-    panel.appendChild(title);
-    panel.appendChild(subtitle);
-    panel.appendChild(rows);
+    updateMarketplaceFloorRow(panel, 'getgems', floors.getgems);
+    updateMarketplaceFloorRow(panel, 'fragment', floors.fragment);
+    updateMarketplaceFloorRow(panel, 'mine', floors.mine);
   }
 
   function ensureCardControlsContainer(container) {
