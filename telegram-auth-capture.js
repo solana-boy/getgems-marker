@@ -2,7 +2,6 @@
 (function() {
   'use strict';
 
-  const STORAGE_KEY = 'gift_satellite_auth';
   const GIFT_SATELLITE_ORIGIN = 'https://gift-satellite.dev';
   const IFRAME_SELECTOR = [
     'iframe.payment-verification',
@@ -12,17 +11,16 @@
 
   let lastCapturedHash = '';
 
-  function storageLocalGet(defaults) {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(defaults, (items) => {
-        resolve(items || defaults);
-      });
-    });
-  }
+  function runtimeSendMessage(message) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
 
-  function storageLocalSet(items) {
-    return new Promise((resolve) => {
-      chrome.storage.local.set(items, () => resolve());
+        resolve(response);
+      });
     });
   }
 
@@ -62,17 +60,10 @@
     if (!record?.hash) return;
     if (record.hash === lastCapturedHash) return;
 
-    const existingItems = await storageLocalGet({ [STORAGE_KEY]: null });
-    const existingRecord = existingItems[STORAGE_KEY];
-
-    if (existingRecord?.hash === record.hash) {
-      lastCapturedHash = record.hash;
-      return;
-    }
-
     lastCapturedHash = record.hash;
-    await storageLocalSet({
-      [STORAGE_KEY]: record
+    await runtimeSendMessage({
+      type: 'GETGEMS_MARKER_SET_GIFT_SATELLITE_AUTH',
+      record: record
     });
   }
 

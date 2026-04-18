@@ -17,6 +17,7 @@
 
   const TONCENTER_RETRY_DELAY_MS = 110;
   const TONCENTER_MAX_ATTEMPTS = Math.max(6, ENCRYPTED_API_KEYS_TONCENTER.length * 2);
+  const GIFT_SATELLITE_AUTH_STORAGE_KEY = 'gift_satellite_auth';
 
   let toncenterKeyIndex = 0;
   let cachedApiPassword = null;
@@ -30,6 +31,10 @@
     return typeof hash === 'string' ? hash.trim().toLowerCase() : '';
   }
 
+  function normalizeText(value) {
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
   function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -40,6 +45,69 @@
         resolve(items || defaults);
       });
     });
+  }
+
+  function storageSessionGet(defaults) {
+    return new Promise((resolve) => {
+      chrome.storage.session.get(defaults, (items) => {
+        resolve(items || defaults);
+      });
+    });
+  }
+
+  function storageSessionSet(items) {
+    return new Promise((resolve, reject) => {
+      chrome.storage.session.set(items, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+
+  function normalizeGiftSatelliteAuthRecord(rawAuth) {
+    if (!rawAuth || typeof rawAuth !== 'object') {
+      return null;
+    }
+
+    const hash = normalizeText(rawAuth.hash);
+    if (!hash || !hash.includes('tgWebAppData=')) {
+      return null;
+    }
+
+    const capturedAt = Number(rawAuth.capturedAt);
+    const authDate = Number(rawAuth.authDate);
+
+    return {
+      hash: hash,
+      capturedAt: Number.isFinite(capturedAt) && capturedAt > 0 ? capturedAt : null,
+      authDate: Number.isFinite(authDate) && authDate > 0 ? authDate : null,
+      source: normalizeText(rawAuth.source),
+      sourceUrl: normalizeText(rawAuth.sourceUrl)
+    };
+  }
+
+  async function persistGiftSatelliteAuthRecord(rawAuth) {
+    const nextRecord = normalizeGiftSatelliteAuthRecord(rawAuth);
+    if (!nextRecord) {
+      throw new Error('Gift Satellite auth payload is invalid');
+    }
+
+    const existingItems = await storageSessionGet({ [GIFT_SATELLITE_AUTH_STORAGE_KEY]: null });
+    const existingRecord = normalizeGiftSatelliteAuthRecord(existingItems[GIFT_SATELLITE_AUTH_STORAGE_KEY]);
+
+    if (existingRecord?.hash === nextRecord.hash) {
+      return nextRecord;
+    }
+
+    await storageSessionSet({
+      [GIFT_SATELLITE_AUTH_STORAGE_KEY]: nextRecord
+    });
+
+    return nextRecord;
   }
 
   function resetToncenterSecretsCache() {
@@ -298,6 +366,24 @@
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === 'GETGEMS_MARKER_SET_GIFT_SATELLITE_AUTH') {
+      persistGiftSatelliteAuthRecord(message.record)
+        .then((record) => {
+          sendResponse({
+            ok: true,
+            hash: record.hash
+          });
+        })
+        .catch((error) => {
+          sendResponse({
+            ok: false,
+            error: error?.message || 'Failed to persist Gift Satellite auth'
+          });
+        });
+
+      return true;
+    }
+
     if (message?.type === 'GETGEMS_MARKER_VALIDATE_API_PASSWORD') {
       getToncenterApiKeys()
         .then((apiKeys) => {

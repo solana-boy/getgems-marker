@@ -57,9 +57,9 @@
     return context;
   }
 
-  function storageLocalGet(defaults) {
+  function storageSessionGet(defaults) {
     return new Promise((resolve) => {
-      chrome.storage.local.get(defaults, (items) => {
+      chrome.storage.session.get(defaults, (items) => {
         resolve(items || defaults);
       });
     });
@@ -88,7 +88,7 @@
   }
 
   async function loadStoredAuth() {
-    const items = await storageLocalGet({ [AUTH_STORAGE_KEY]: null });
+    const items = await storageSessionGet({ [AUTH_STORAGE_KEY]: null });
     return normalizeAuthRecord(items[AUTH_STORAGE_KEY]);
   }
 
@@ -343,7 +343,7 @@
 
   function watchAuthStorage() {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'local') return;
+      if (areaName !== 'session') return;
       if (!Object.prototype.hasOwnProperty.call(changes, AUTH_STORAGE_KEY)) return;
 
       state.auth = normalizeAuthRecord(changes[AUTH_STORAGE_KEY].newValue);
