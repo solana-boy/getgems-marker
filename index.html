@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getgems Marker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup">
+    <h1 class="popup__title">Toncenter Fernet Key</h1>
+    <p class="popup__copy">
+      Save the <code>api_password</code> value used to decrypt Toncenter API keys in the extension background worker.
+    </p>
+
+    <form id="api-password-form" class="popup__form">
+      <label class="popup__label" for="api-password">api_password</label>
+      <input
+        id="api-password"
+        class="popup__input"
+        name="api_password"
+        type="password"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="Paste Fernet key"
+      >
+
+      <div class="popup__actions">
+        <button class="popup__button popup__button--primary" type="submit">Save</button>
+        <button class="popup__button popup__button--secondary" type="button" id="clear-api-password">Clear</button>
+      </div>
+
+      <p id="popup-status" class="popup__status" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

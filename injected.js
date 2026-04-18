@@ -7,6 +7,9 @@
   // Store NFT marketplace data
   const nftMarketplaceData = {};
 
+  // Store sale history marketplace data keyed by transaction hash
+  const historyMarketplaceData = {};
+
   // Store headers from successful GraphQL requests
   let capturedHeaders = null;
 
@@ -169,6 +172,41 @@
     return isNew;
   }
 
+  function normalizeHash(hash) {
+    return typeof hash === 'string' ? hash.trim().toLowerCase() : '';
+  }
+
+  function didEntryChange(currentEntry, nextEntry) {
+    const keys = new Set([
+      ...Object.keys(currentEntry || {}),
+      ...Object.keys(nextEntry || {})
+    ]);
+
+    for (const key of keys) {
+      if (currentEntry?.[key] !== nextEntry?.[key]) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function upsertHistoryData(hash, entry) {
+    const normalizedHash = normalizeHash(hash);
+    if (!normalizedHash || !entry) return false;
+
+    const currentEntry = historyMarketplaceData[normalizedHash] || {};
+    const nextEntry = {
+      ...currentEntry,
+      ...entry,
+      hash: normalizedHash
+    };
+
+    historyMarketplaceData[normalizedHash] = nextEntry;
+
+    return didEntryChange(currentEntry, nextEntry);
+  }
+
   function postNftData() {
     if (Object.keys(nftMarketplaceData).length === 0) return;
 
@@ -177,6 +215,16 @@
       data: nftMarketplaceData
     }, '*');
     console.log('[Getgems Marker] Sent data to content script');
+  }
+
+  function postHistoryData() {
+    if (Object.keys(historyMarketplaceData).length === 0) return;
+
+    window.postMessage({
+      type: 'GETGEMS_MARKER_HISTORY_DATA',
+      data: historyMarketplaceData
+    }, '*');
+    console.log('[Getgems Marker] Sent history data to content script');
   }
 
   // Listen for requests from content script
@@ -520,6 +568,52 @@
     }
   }
 
+  function processHistoryCollectionResponse(data, operationName) {
+    const historyItems = data?.data?.historyCollectionNftItems?.items;
+    if (!Array.isArray(historyItems) || historyItems.length === 0) return;
+
+    let changed = false;
+
+    historyItems.forEach((item) => {
+      if (item?.typeData?.type !== 'sold') return;
+
+      const hash = normalizeHash(item.hash);
+      if (!hash) return;
+
+      const nextEntry = {
+        offchain: Boolean(item.offchain),
+        saleType: 'sale'
+      };
+
+      if (item?.nft?.name) {
+        nextEntry.nftName = item.nft.name;
+      }
+
+      if (typeof item?.time === 'number') {
+        nextEntry.time = item.time;
+      }
+
+      if (item.offchain) {
+        nextEntry.marketplace = 'getgems';
+      }
+
+      if (upsertHistoryData(hash, nextEntry)) {
+        changed = true;
+      }
+    });
+
+    console.log(
+      '[Getgems Marker] Processed',
+      historyItems.length,
+      'history items in',
+      operationName || 'historyCollectionNftItems'
+    );
+
+    if (changed) {
+      postHistoryData();
+    }
+  }
+
   function processGraphQLResponse(data, operationName) {
     try {
       // Capture current user ID from getCurrentUser response
@@ -532,6 +626,8 @@
         }, '*');
         return;
       }
+
+      processHistoryCollectionResponse(data, operationName);
 
       const items = findNftItems(data);
 

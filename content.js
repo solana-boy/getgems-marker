@@ -7,11 +7,19 @@
   // Store NFT data received from injected script
   let nftData = {};
 
+  // Store sale history marketplace data keyed by transaction hash
+  let historySaleData = {};
+
   // Store current user ID
   let currentUserId = null;
 
   // Track all listings encountered on the current page so floors survive virtualized scrolling.
   let marketplaceFloorState = null;
+
+  // Avoid spamming hash lookup fallback requests if a response is still in flight.
+  const requestedHistoryLookupAt = new Map();
+
+  let historyLookupBatchInFlight = false;
 
   // Inject the fetch interceptor into the page context
   function injectScript() {
@@ -25,6 +33,19 @@
   }
 
   injectScript();
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type !== 'GETGEMS_MARKER_RETRY_HISTORY_LOOKUPS') {
+      return undefined;
+    }
+
+    requestedHistoryLookupAt.clear();
+    historyLookupBatchInFlight = false;
+    requestMissingActivityHistoryLookups();
+    updateActivitySaleMarkers();
+
+    return undefined;
+  });
 
   // Listen for messages from injected script (page context)
   window.addEventListener('message', (event) => {
@@ -43,6 +64,22 @@
       updateItemPageMarker();
       updateMarketplaceFloorSummary();
     }
+    if (event.data?.type === 'GETGEMS_MARKER_HISTORY_DATA') {
+      const incomingHistoryData = event.data.data || {};
+      console.log('[Getgems Marker] Received history data via postMessage:', Object.keys(incomingHistoryData).length, 'items');
+      historySaleData = {
+        ...historySaleData,
+        ...incomingHistoryData
+      };
+
+      Object.entries(incomingHistoryData).forEach(([hash, info]) => {
+        if (info?.marketplace) {
+          requestedHistoryLookupAt.delete(hash);
+        }
+      });
+
+      updateActivitySaleMarkers();
+    }
   });
 
   // Wait for DOM to be ready
@@ -59,6 +96,8 @@
       updateMarkers();
       updateItemPageMarker();
       updateMarketplaceFloorSummary();
+      updateActivitySaleMarkers();
+      requestMissingActivityHistoryLookups();
     }, 300);
 
     // Observe DOM changes for dynamically loaded content
@@ -74,6 +113,8 @@
       updateMarkers();
       updateItemPageMarker();
       updateMarketplaceFloorSummary();
+      updateActivitySaleMarkers();
+      requestMissingActivityHistoryLookups();
     }, 2000);
 
     // Try to fetch initial data after a delay (for cached pages)
@@ -157,6 +198,207 @@
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(func, delay);
     };
+  }
+
+  function normalizeHistoryHash(hash) {
+    return typeof hash === 'string' ? hash.trim().toLowerCase() : '';
+  }
+
+  function extractHistoryTransactionHash(row) {
+    const txLink = row?.querySelector('a[href*="tonviewer.com/transaction/"]');
+    const href = txLink?.getAttribute('href') || txLink?.href || '';
+    const match = href.match(/\/transaction\/([0-9a-f]{64})/i);
+
+    return match ? normalizeHistoryHash(match[1]) : null;
+  }
+
+  function isSaleHistoryRow(row) {
+    return Boolean(row?.querySelector('.TransactionTypeView--sold'));
+  }
+
+  function getSaleHistoryMarkerHost(row) {
+    return (
+      row?.querySelector('.TypeCell .LibraryCellTitle .LibraryLineContainer') ||
+      row?.querySelector('.TypeCell .LibraryLineContainer') ||
+      null
+    );
+  }
+
+  function createSaleHistoryMarkerContent(marketplace) {
+    if (marketplace === 'getgems' || marketplace === 'fragment') {
+      const logo = document.createElement('img');
+      logo.className = 'marketplace-sale-marker__logo';
+      logo.src = chrome.runtime.getURL(marketplace === 'getgems' ? 'getgems.svg' : 'fragment.svg');
+      logo.alt = marketplace === 'getgems' ? 'G' : 'F';
+      return logo;
+    }
+
+    const text = document.createElement('span');
+    text.className = 'marketplace-sale-marker__text';
+    text.textContent = '?';
+    return text;
+  }
+
+  function getSaleHistoryMarkerTitle(info) {
+    if (info?.marketplace === 'getgems') {
+      if (info.saleType === 'offer') {
+        return 'Sale via Getgems offer';
+      }
+
+      return info.offchain ? 'Sale via Getgems (offchain)' : 'Sale via Getgems';
+    }
+
+    if (info?.marketplace === 'fragment') {
+      return 'Sale via Fragment';
+    }
+
+    return 'Sale marketplace is unknown';
+  }
+
+  function syncActivitySaleOfferBadge(markerHost, hash, info) {
+    const existingBadge = markerHost.querySelector('.marketplace-sale-offer-badge');
+    const shouldShow = info?.marketplace === 'getgems' && info?.saleType === 'offer';
+
+    if (!shouldShow) {
+      if (existingBadge) {
+        existingBadge.remove();
+      }
+      return;
+    }
+
+    const badge = existingBadge || document.createElement('span');
+
+    if (!existingBadge) {
+      badge.className = 'marketplace-sale-offer-badge';
+      markerHost.appendChild(badge);
+    }
+
+    if (badge.dataset.hash !== hash) {
+      badge.dataset.hash = hash;
+    }
+
+    if (badge.textContent !== 'offer') {
+      badge.textContent = 'offer';
+    }
+
+    const nextTitle = 'Getgems offer sale';
+    if (badge.title !== nextTitle) {
+      badge.title = nextTitle;
+    }
+  }
+
+  function syncActivitySaleMarker(markerHost, hash, info) {
+    const existingMarker = markerHost.querySelector('.marketplace-sale-marker');
+
+    if (!info?.marketplace) {
+      if (existingMarker && existingMarker.dataset.hash !== hash) {
+        existingMarker.remove();
+      }
+      return;
+    }
+
+    const marker = existingMarker || document.createElement('span');
+    const nextMarketplace = info.marketplace;
+
+    if (!existingMarker) {
+      marker.className = 'marketplace-sale-marker';
+      markerHost.appendChild(marker);
+    }
+
+    if (marker.dataset.hash !== hash) {
+      marker.dataset.hash = hash;
+    }
+
+    if (marker.dataset.marketplace !== nextMarketplace) {
+      marker.dataset.marketplace = nextMarketplace;
+      marker.className = `marketplace-sale-marker marketplace-sale-marker--${nextMarketplace}`;
+      marker.replaceChildren(createSaleHistoryMarkerContent(nextMarketplace));
+    }
+
+    const nextTitle = getSaleHistoryMarkerTitle(info);
+    if (marker.title !== nextTitle) {
+      marker.title = nextTitle;
+    }
+  }
+
+  function updateActivitySaleMarkers() {
+    const rows = document.querySelectorAll('.TableRow');
+    if (rows.length === 0) return;
+
+    rows.forEach((row) => {
+      if (!isSaleHistoryRow(row)) return;
+
+      const hash = extractHistoryTransactionHash(row);
+      const markerHost = getSaleHistoryMarkerHost(row);
+      if (!hash || !markerHost) return;
+
+      syncActivitySaleMarker(markerHost, hash, historySaleData[hash]);
+      syncActivitySaleOfferBadge(markerHost, hash, historySaleData[hash]);
+    });
+  }
+
+  function requestMissingActivityHistoryLookups() {
+    if (historyLookupBatchInFlight) return;
+
+    const rows = document.querySelectorAll('.TableRow');
+    if (rows.length === 0) return;
+
+    const pendingHashes = [];
+
+    rows.forEach((row) => {
+      if (!isSaleHistoryRow(row)) return;
+
+      const hash = extractHistoryTransactionHash(row);
+      if (!hash) return;
+
+      if (historySaleData[hash]?.marketplace) {
+        requestedHistoryLookupAt.delete(hash);
+        return;
+      }
+
+      const lastRequestedAt = requestedHistoryLookupAt.get(hash) || 0;
+      if (Date.now() - lastRequestedAt < 15000) {
+        return;
+      }
+
+      requestedHistoryLookupAt.set(hash, Date.now());
+      pendingHashes.push(hash);
+    });
+
+    if (pendingHashes.length > 0) {
+      console.log('[Getgems Marker] Requesting history hash lookups for', pendingHashes.length, 'rows');
+      historyLookupBatchInFlight = true;
+
+      chrome.runtime.sendMessage({
+        type: 'GETGEMS_MARKER_LOOKUP_HISTORY_MARKETPLACES',
+        hashes: pendingHashes
+      }, (response) => {
+        historyLookupBatchInFlight = false;
+
+        if (chrome.runtime.lastError) {
+          console.error('[Getgems Marker] History lookup request failed:', chrome.runtime.lastError.message);
+          return;
+        }
+
+        if (!response?.ok || !response.data) {
+          console.error('[Getgems Marker] History lookup returned no data:', response?.error || 'unknown error');
+          return;
+        }
+
+        historySaleData = {
+          ...historySaleData,
+          ...response.data
+        };
+
+        Object.keys(response.data).forEach((hash) => {
+          if (response.data[hash]?.marketplace) {
+            requestedHistoryLookupAt.delete(hash);
+          }
+        });
+
+        updateActivitySaleMarkers();
+      });
+    }
   }
 
   // Extract NFT address from a card container

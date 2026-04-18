@@ -32,6 +32,72 @@
   pointer-events: none !important;
 }
 
+.marketplace-sale-marker {
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  min-height: 18px !important;
+  margin-left: 6px !important;
+  border-radius: 50% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28) !important;
+  cursor: help !important;
+  flex-shrink: 0 !important;
+  vertical-align: middle !important;
+}
+
+.marketplace-sale-marker__logo {
+  width: 10px !important;
+  height: 10px !important;
+  display: block !important;
+  pointer-events: none !important;
+}
+
+.marketplace-sale-marker__text {
+  color: #ffffff !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+.marketplace-sale-marker--getgems {
+  background: #2563eb !important;
+  border: 1px solid rgba(255, 255, 255, 0.92) !important;
+}
+
+.marketplace-sale-marker--fragment {
+  background: #9333ea !important;
+  border: 1px solid rgba(255, 255, 255, 0.92) !important;
+}
+
+.marketplace-sale-marker--unknown {
+  background: #64748b !important;
+  border: 1px solid rgba(255, 255, 255, 0.92) !important;
+}
+
+.marketplace-sale-offer-badge {
+  margin-left: 4px !important;
+  padding: 1px 6px !important;
+  border-radius: 999px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(245, 158, 11, 0.18) !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  color: #f59e0b !important;
+  cursor: help !important;
+  flex-shrink: 0 !important;
+  vertical-align: middle !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  line-height: 1.4 !important;
+  text-transform: lowercase !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
 /* Larger logo for item page badges */
 .marketplace-marker-item .marketplace-marker-logo {
   width: 18px !important;
