@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Getgems Marketplace Marker",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Marks NFT listings with Getgems or Fragment logo based on marketplace. Helps identify listing source and associated fees.",
   "author": "NFT Tools",
   "homepage_url": "https://github.com/solana-boy/getgems-marker",
@@ -14,6 +14,7 @@
   },
   "host_permissions": [
     "https://getgems.io/*",
+    "https://web.telegram.org/*",
     "https://toncenter.com/*"
   ],
   "background": {
@@ -25,11 +26,23 @@
       "js": ["content.js"],
       "css": ["styles.css"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://web.telegram.org/*"],
+      "js": ["telegram-auth-capture.js"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["injected.js", "getgems.svg", "fragment.svg"],
+      "resources": [
+        "injected.js",
+        "getgems.svg",
+        "fragment.svg",
+        "gift-satellite-embed.html",
+        "gift-satellite-embed.css",
+        "gift-satellite-embed.js"
+      ],
       "matches": ["https://getgems.io/*"]
     }
   ],

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gift Satellite</title>
+  <link rel="stylesheet" href="gift-satellite-embed.css">
+</head>
+<body>
+  <main class="gift-satellite-embed">
+    <header class="gift-satellite-embed__header">
+      <div>
+        <p class="gift-satellite-embed__eyebrow">Check other markets</p>
+        <h1 class="gift-satellite-embed__title">Gift Satellite</h1>
+      </div>
+      <button
+        id="gift-satellite-close"
+        class="gift-satellite-embed__close"
+        type="button"
+        aria-label="Close Gift Satellite"
+      >
+        Close
+      </button>
+    </header>
+
+    <section class="gift-satellite-embed__meta">
+      <div id="gift-satellite-context" class="gift-satellite-embed__context"></div>
+      <div class="gift-satellite-embed__actions">
+        <button
+          id="gift-satellite-refresh-auth"
+          class="gift-satellite-embed__action gift-satellite-embed__action--primary"
+          type="button"
+        >
+          Refresh Telegram auth
+        </button>
+        <a
+          id="gift-satellite-open-tab"
+          class="gift-satellite-embed__action gift-satellite-embed__action--secondary"
+          href="https://gift-satellite.dev/subscription/new"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open in new tab
+        </a>
+      </div>
+      <p id="gift-satellite-auth-status" class="gift-satellite-embed__note"></p>
+      <p id="gift-satellite-note" class="gift-satellite-embed__note"></p>
+    </section>
+
+    <section class="gift-satellite-embed__frame-shell">
+      <div id="gift-satellite-status" class="gift-satellite-embed__status">
+        Loading Gift Satellite...
+      </div>
+      <iframe
+        id="gift-satellite-frame"
+        class="gift-satellite-embed__frame"
+        title="Gift Satellite"
+        loading="eager"
+        referrerpolicy="strict-origin-when-cross-origin"
+      ></iframe>
+    </section>
+  </main>
+
+  <script src="gift-satellite-embed.js"></script>
+</body>
+</html>

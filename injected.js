@@ -136,9 +136,147 @@
     return item.sale;
   }
 
+  const giftSatelliteFieldAliases = {
+    giftModelName: ['model'],
+    giftBackdropName: ['backdrop', 'background', 'bg'],
+    giftSymbolName: ['symbol', 'pattern']
+  };
+
+  function normalizeGiftSatelliteText(value) {
+    if (typeof value !== 'string') return '';
+
+    return value
+      .replace(/\s+/g, ' ')
+      .replace(/\u00a0/g, ' ')
+      .trim();
+  }
+
+  function normalizeGiftSatelliteLabel(label) {
+    return normalizeGiftSatelliteText(label)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function extractGiftCollectionNameFromNftName(value) {
+    const normalized = normalizeGiftSatelliteText(value);
+    if (!normalized) return '';
+
+    const hashIndex = normalized.indexOf('#');
+    const collectionName = hashIndex >= 0
+      ? normalizeGiftSatelliteText(normalized.slice(0, hashIndex))
+      : normalized;
+
+    return isLikelyGiftSatelliteValue(collectionName) ? collectionName : '';
+  }
+
+  function isLikelyGiftSatelliteValue(value) {
+    if (typeof value !== 'string') return false;
+
+    const normalized = normalizeGiftSatelliteText(value);
+    if (!normalized || normalized.length > 80) return false;
+    if (/^(?:eq|uq)[a-z0-9_-]{20,}$/i.test(normalized)) return false;
+    if (/^[0-9]+(?:\.[0-9]+)?$/.test(normalized)) return false;
+
+    return true;
+  }
+
+  function resolveGiftSatelliteFieldKey(label) {
+    const normalizedLabel = normalizeGiftSatelliteLabel(label);
+    if (!normalizedLabel) return null;
+
+    for (const [fieldKey, aliases] of Object.entries(giftSatelliteFieldAliases)) {
+      if (aliases.some(alias => normalizedLabel === alias || normalizedLabel.startsWith(`${alias} `))) {
+        return fieldKey;
+      }
+    }
+
+    return null;
+  }
+
+  function setGiftSatelliteField(target, key, value) {
+    if (!key || target[key]) return;
+    if (!isLikelyGiftSatelliteValue(value)) return;
+
+    target[key] = normalizeGiftSatelliteText(value);
+  }
+
+  function extractGiftSatelliteContextFromObject(root) {
+    if (!root || typeof root !== 'object') return {};
+
+    const context = {};
+    const visited = new WeakSet();
+
+    setGiftSatelliteField(context, 'collectionName', extractGiftCollectionNameFromNftName(root.name));
+
+    function walk(node, depth = 0) {
+      if (!node || depth > 8) return;
+
+      if (Array.isArray(node)) {
+        node.forEach(child => walk(child, depth + 1));
+        return;
+      }
+
+      if (typeof node !== 'object') return;
+      if (visited.has(node)) return;
+      visited.add(node);
+
+      if ((node.__typename === 'NftItem' || node.address) && typeof node.name === 'string') {
+        setGiftSatelliteField(context, 'collectionName', extractGiftCollectionNameFromNftName(node.name));
+      }
+
+      setGiftSatelliteField(context, 'collectionName', node.collectionName);
+
+      if (node.collection && typeof node.collection === 'object') {
+        setGiftSatelliteField(context, 'collectionName', node.collection.name);
+      }
+
+      if (node.nftCollection && typeof node.nftCollection === 'object') {
+        setGiftSatelliteField(context, 'collectionName', node.nftCollection.name);
+      }
+
+      const labelCandidates = [
+        node.traitType,
+        node.trait_type,
+        node.label,
+        node.key,
+        node.title,
+        node.name,
+        node.type
+      ];
+      const valueCandidates = [
+        node.value,
+        node.displayValue,
+        node.traitValue,
+        node.text,
+        node.slug,
+        node.content
+      ];
+
+      for (const labelCandidate of labelCandidates) {
+        const fieldKey = resolveGiftSatelliteFieldKey(labelCandidate);
+        if (!fieldKey) continue;
+
+        for (const valueCandidate of valueCandidates) {
+          if (typeof valueCandidate === 'string') {
+            setGiftSatelliteField(context, fieldKey, valueCandidate);
+            break;
+          }
+        }
+      }
+
+      Object.values(node).forEach(child => walk(child, depth + 1));
+    }
+
+    walk(root, 0);
+
+    return context;
+  }
+
   function buildNftDataEntry(item, marketplace, ownerId, sale) {
     const entry = {
-      ...extractTonPriceData(sale)
+      ...extractTonPriceData(sale),
+      ...extractGiftSatelliteContextFromObject(item)
     };
 
     if (item?.name) {

@@ -16,6 +16,9 @@
   // Track all listings encountered on the current page so floors survive virtualized scrolling.
   let marketplaceFloorState = null;
 
+  let giftSatelliteOverlay = null;
+  let giftSatelliteScrollLock = null;
+
   // Avoid spamming hash lookup fallback requests if a response is still in flight.
   const requestedHistoryLookupAt = new Map();
 
@@ -62,6 +65,7 @@
       nftData = event.data.data;
       updateMarkers();
       updateItemPageMarker();
+      updateGiftSatelliteLauncher();
       updateMarketplaceFloorSummary();
     }
     if (event.data?.type === 'GETGEMS_MARKER_HISTORY_DATA') {
@@ -82,6 +86,8 @@
     }
   });
 
+  window.addEventListener('message', handleGiftSatelliteEmbedMessage);
+
   // Wait for DOM to be ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -95,6 +101,7 @@
     const refreshUi = debounce(() => {
       updateMarkers();
       updateItemPageMarker();
+      updateGiftSatelliteLauncher();
       updateMarketplaceFloorSummary();
       updateActivitySaleMarkers();
       requestMissingActivityHistoryLookups();
@@ -112,6 +119,7 @@
     setInterval(() => {
       updateMarkers();
       updateItemPageMarker();
+      updateGiftSatelliteLauncher();
       updateMarketplaceFloorSummary();
       updateActivitySaleMarkers();
       requestMissingActivityHistoryLookups();
@@ -432,6 +440,519 @@
     }
 
     return null;
+  }
+
+  function isStandaloneNftPage() {
+    return (
+      /\/nft\/[A-Za-z0-9_-]+/.test(window.location.pathname) ||
+      /\/collection\/[^/]+\/[A-Za-z0-9_-]+/.test(window.location.pathname)
+    );
+  }
+
+  function normalizeGiftSatelliteText(value) {
+    if (typeof value !== 'string') return '';
+
+    return value
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function normalizeGiftSatelliteLabel(value) {
+    return normalizeGiftSatelliteText(value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function extractGiftCollectionNameFromNftName(value) {
+    const normalized = normalizeGiftSatelliteText(value);
+    if (!normalized) return '';
+
+    const hashIndex = normalized.indexOf('#');
+    const collectionName = hashIndex >= 0
+      ? normalizeGiftSatelliteText(normalized.slice(0, hashIndex))
+      : normalized;
+
+    return isLikelyGiftSatelliteValue(collectionName) ? collectionName : '';
+  }
+
+  function isLikelyGiftSatelliteValue(value) {
+    const normalized = normalizeGiftSatelliteText(value);
+
+    if (!normalized || normalized.length > 80) return false;
+    if (/^(?:eq|uq)[a-z0-9_-]{20,}$/i.test(normalized)) return false;
+    if (/^[0-9]+(?:\.[0-9]+)?$/.test(normalized)) return false;
+    if (/^(model|backdrop|background|symbol|pattern)$/i.test(normalized)) return false;
+
+    return true;
+  }
+
+  function resolveGiftSatelliteFieldKey(label) {
+    const normalized = normalizeGiftSatelliteLabel(label);
+    if (!normalized) return null;
+
+    if (normalized === 'model' || normalized.startsWith('model ')) {
+      return 'modelName';
+    }
+
+    if (
+      normalized === 'backdrop' ||
+      normalized === 'background' ||
+      normalized.startsWith('backdrop ') ||
+      normalized.startsWith('background ')
+    ) {
+      return 'backdropName';
+    }
+
+    if (
+      normalized === 'symbol' ||
+      normalized === 'pattern' ||
+      normalized.startsWith('symbol ') ||
+      normalized.startsWith('pattern ')
+    ) {
+      return 'symbolName';
+    }
+
+    return null;
+  }
+
+  function setGiftSatelliteContextValue(target, key, value) {
+    if (!key || target[key]) return;
+    if (!isLikelyGiftSatelliteValue(value)) return;
+
+    target[key] = normalizeGiftSatelliteText(value);
+  }
+
+  function extractGiftSatelliteContextFromObject(root) {
+    if (!root || typeof root !== 'object') return {};
+
+    const context = {};
+    const visited = new WeakSet();
+
+    setGiftSatelliteContextValue(context, 'collectionName', extractGiftCollectionNameFromNftName(root.name));
+
+    function walk(node, depth = 0) {
+      if (!node || depth > 8) return;
+
+      if (Array.isArray(node)) {
+        node.forEach(child => walk(child, depth + 1));
+        return;
+      }
+
+      if (typeof node !== 'object') return;
+      if (visited.has(node)) return;
+      visited.add(node);
+
+      if ((node.__typename === 'NftItem' || node.address) && typeof node.name === 'string') {
+        setGiftSatelliteContextValue(context, 'collectionName', extractGiftCollectionNameFromNftName(node.name));
+      }
+
+      setGiftSatelliteContextValue(context, 'collectionName', node.collectionName);
+      if (node.collection && typeof node.collection === 'object') {
+        setGiftSatelliteContextValue(context, 'collectionName', node.collection.name);
+      }
+      if (node.nftCollection && typeof node.nftCollection === 'object') {
+        setGiftSatelliteContextValue(context, 'collectionName', node.nftCollection.name);
+      }
+
+      const labelCandidates = [
+        node.traitType,
+        node.trait_type,
+        node.label,
+        node.key,
+        node.title,
+        node.name,
+        node.type
+      ];
+      const valueCandidates = [
+        node.value,
+        node.displayValue,
+        node.traitValue,
+        node.text,
+        node.slug,
+        node.content
+      ];
+
+      for (const label of labelCandidates) {
+        const fieldKey = resolveGiftSatelliteFieldKey(label);
+        if (!fieldKey) continue;
+
+        for (const value of valueCandidates) {
+          if (typeof value === 'string') {
+            setGiftSatelliteContextValue(context, fieldKey, value);
+            break;
+          }
+        }
+      }
+
+      Object.values(node).forEach(child => walk(child, depth + 1));
+    }
+
+    walk(root, 0);
+
+    return context;
+  }
+
+  function findNftItemInObject(obj, depth = 0) {
+    if (!obj || typeof obj !== 'object' || depth > 10) return null;
+
+    if (obj.address && obj.__typename === 'NftItem') {
+      return obj;
+    }
+
+    if (obj.nftItemByAddress && typeof obj.nftItemByAddress === 'object') {
+      return obj.nftItemByAddress;
+    }
+
+    if (obj.nftItem && typeof obj.nftItem === 'object') {
+      return obj.nftItem;
+    }
+
+    if (obj.item && obj.item.address) {
+      return obj.item;
+    }
+
+    for (const key of Object.keys(obj)) {
+      const found = findNftItemInObject(obj[key], depth + 1);
+      if (found) return found;
+    }
+
+    return null;
+  }
+
+  function extractGiftSatelliteContextFromNextData() {
+    const nextDataScript = document.getElementById('__NEXT_DATA__');
+    if (!nextDataScript?.textContent) return {};
+
+    try {
+      const nextData = JSON.parse(nextDataScript.textContent);
+      const pageProps = nextData?.props?.pageProps || {};
+      const nftItem = findNftItemInObject(pageProps);
+
+      return extractGiftSatelliteContextFromObject(nftItem || pageProps);
+    } catch (error) {
+      console.warn('[Getgems Marker] Could not parse __NEXT_DATA__ for Gift Satellite context:', error);
+      return {};
+    }
+  }
+
+  function isElementVisible(element) {
+    if (!(element instanceof HTMLElement)) return false;
+    if (element.hidden) return false;
+
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+      return false;
+    }
+
+    return true;
+  }
+
+  function findVisibleTextInNode(node, excludedValues = new Set()) {
+    if (!node) return null;
+
+    const candidates = [];
+
+    if (node instanceof HTMLElement && isElementVisible(node)) {
+      const directText = normalizeGiftSatelliteText(node.textContent || '');
+      if (directText && !excludedValues.has(directText)) {
+        candidates.push(directText);
+      }
+
+      const textElements = node.querySelectorAll('a, button, span, div, p, dt, dd, li');
+      textElements.forEach((element) => {
+        if (!isElementVisible(element)) return;
+
+        const text = normalizeGiftSatelliteText(element.textContent || '');
+        if (!text || excludedValues.has(text)) return;
+        candidates.push(text);
+      });
+    }
+
+    return candidates.find(isLikelyGiftSatelliteValue) || null;
+  }
+
+  function extractValueNearLabel(labelTexts) {
+    const normalizedLabels = new Set(
+      labelTexts
+        .map(resolveGiftSatelliteFieldKey)
+        .filter(Boolean)
+    );
+    const normalizedRawLabels = new Set(labelTexts.map(text => normalizeGiftSatelliteLabel(text)).filter(Boolean));
+    const rawLabels = new Set(labelTexts.map(text => normalizeGiftSatelliteText(text)).filter(Boolean));
+    const allLabels = new Set([...normalizedLabels, ...normalizedRawLabels, ...rawLabels]);
+
+    const elements = document.querySelectorAll('div, span, dt, dd, button, p, a, li');
+
+    for (const element of elements) {
+      if (!isElementVisible(element)) continue;
+
+      const text = normalizeGiftSatelliteText(element.textContent || '');
+      if (!text) continue;
+
+      const normalizedText = normalizeGiftSatelliteLabel(text);
+      if (!allLabels.has(text) && !allLabels.has(normalizedText)) continue;
+
+      const excludedValues = new Set([text]);
+      if (element.nextElementSibling) {
+        const nextText = findVisibleTextInNode(element.nextElementSibling, excludedValues);
+        if (nextText) return nextText;
+      }
+
+      if (element.parentElement) {
+        const siblingElements = Array.from(element.parentElement.children).filter(child => child !== element);
+        for (const sibling of siblingElements) {
+          const siblingText = findVisibleTextInNode(sibling, excludedValues);
+          if (siblingText) return siblingText;
+        }
+      }
+
+      const container = element.closest('li, div, section, article, tr, dl');
+      const containerText = findVisibleTextInNode(container, excludedValues);
+      if (containerText) return containerText;
+    }
+
+    return null;
+  }
+
+  function extractCollectionNameFromDom() {
+    const headingCandidates = [];
+    const titleCollectionName = extractGiftCollectionNameFromNftName(document.title);
+    if (titleCollectionName) {
+      headingCandidates.push(titleCollectionName);
+    }
+
+    const headingElements = document.querySelectorAll('h1, [role="heading"]');
+    for (const element of headingElements) {
+      if (!(element instanceof HTMLElement) || !isElementVisible(element)) continue;
+
+      const collectionName = extractGiftCollectionNameFromNftName(element.textContent || '');
+      if (collectionName) {
+        headingCandidates.push(collectionName);
+      }
+    }
+
+    if (headingCandidates.length > 0) {
+      return headingCandidates[0];
+    }
+
+    const collectionLinks = document.querySelectorAll('a[href*="/collection/"]');
+
+    for (const link of collectionLinks) {
+      if (!(link instanceof HTMLElement) || !isElementVisible(link)) continue;
+
+      const text = normalizeGiftSatelliteText(link.textContent || '');
+      if (!isLikelyGiftSatelliteValue(text)) continue;
+      if (text.includes('#')) continue;
+
+      return text;
+    }
+
+    return null;
+  }
+
+  function extractGiftSatelliteContextFromDom() {
+    const context = {};
+
+    setGiftSatelliteContextValue(context, 'collectionName', extractCollectionNameFromDom());
+    setGiftSatelliteContextValue(context, 'modelName', extractValueNearLabel(['Model']));
+    setGiftSatelliteContextValue(context, 'backdropName', extractValueNearLabel(['Backdrop', 'Background']));
+    setGiftSatelliteContextValue(context, 'symbolName', extractValueNearLabel(['Symbol', 'Pattern']));
+
+    return context;
+  }
+
+  function mergeGiftSatelliteContexts(...contexts) {
+    const merged = {};
+
+    contexts.forEach((context) => {
+      if (!context || typeof context !== 'object') return;
+
+      ['collectionName', 'modelName', 'backdropName', 'symbolName'].forEach((key) => {
+        setGiftSatelliteContextValue(merged, key, context[key]);
+      });
+    });
+
+    return merged;
+  }
+
+  function getGiftSatelliteContext() {
+    const nftAddress = extractCurrentItemPageAddress();
+    const info = nftAddress ? nftData[nftAddress] || {} : {};
+
+    return {
+      nftAddress: nftAddress || '',
+      ...mergeGiftSatelliteContexts(
+        {
+          collectionName: info.collectionName,
+          modelName: info.giftModelName,
+          backdropName: info.giftBackdropName,
+          symbolName: info.giftSymbolName
+        },
+        extractGiftSatelliteContextFromNextData(),
+        extractGiftSatelliteContextFromDom()
+      )
+    };
+  }
+
+  function buildGiftSatelliteFilter(context) {
+    const parts = [
+      normalizeGiftSatelliteText(context.collectionName),
+      normalizeGiftSatelliteText(context.modelName),
+      normalizeGiftSatelliteText(context.backdropName),
+      normalizeGiftSatelliteText(context.symbolName)
+    ];
+
+    while (parts.length > 0 && !parts[parts.length - 1]) {
+      parts.pop();
+    }
+
+    return parts.filter(Boolean).join(':');
+  }
+
+  function buildGiftSatelliteEmbedUrl(context) {
+    const params = new URLSearchParams();
+    const filter = buildGiftSatelliteFilter(context);
+
+    if (context.collectionName) params.set('collection', context.collectionName);
+    if (context.modelName) params.set('model', context.modelName);
+    if (context.backdropName) params.set('backdrop', context.backdropName);
+    if (context.symbolName) params.set('symbol', context.symbolName);
+    if (context.nftAddress) params.set('nftAddress', context.nftAddress);
+    if (filter) params.set('filter', filter);
+
+    const query = params.toString();
+    return chrome.runtime.getURL(query ? `gift-satellite-embed.html?${query}` : 'gift-satellite-embed.html');
+  }
+
+  function ensureGiftSatelliteLauncherHost(actionsCard) {
+    let host = actionsCard.querySelector('.getgems-marker-item-tools');
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'getgems-marker-item-tools';
+    }
+
+    const anchor = actionsCard.querySelector(
+      '.marketplace-marker-item-container, .NftPageActionsCard__list, .NftPageActions'
+    );
+    if (anchor) {
+      if (host.previousElementSibling !== anchor) {
+        anchor.insertAdjacentElement('afterend', host);
+      }
+    } else if (!actionsCard.contains(host)) {
+      actionsCard.insertBefore(host, actionsCard.firstChild);
+    }
+
+    return host;
+  }
+
+  function removeGiftSatelliteLauncher() {
+    document.querySelectorAll('.getgems-marker-item-tools').forEach((node) => node.remove());
+  }
+
+  function closeGiftSatelliteOverlay() {
+    if (!giftSatelliteOverlay) return;
+
+    document.removeEventListener('keydown', handleGiftSatelliteOverlayKeydown, true);
+    giftSatelliteOverlay.remove();
+    giftSatelliteOverlay = null;
+
+    if (giftSatelliteScrollLock) {
+      document.documentElement.style.overflow = giftSatelliteScrollLock.htmlOverflow;
+      document.body.style.overflow = giftSatelliteScrollLock.bodyOverflow;
+      giftSatelliteScrollLock = null;
+    }
+  }
+
+  function handleGiftSatelliteOverlayKeydown(event) {
+    if (event.key === 'Escape') {
+      closeGiftSatelliteOverlay();
+    }
+  }
+
+  function handleGiftSatelliteEmbedMessage(event) {
+    if (!giftSatelliteOverlay || !event?.data) return;
+
+    const expectedOrigin = chrome.runtime.getURL('').replace(/\/$/, '');
+    const frame = giftSatelliteOverlay.querySelector('.getgems-marker-gift-satellite-overlay__frame');
+
+    if (event.data.type !== 'GETGEMS_MARKER_CLOSE_GIFT_SATELLITE') return;
+    if (event.origin !== expectedOrigin) return;
+    if (event.source !== frame?.contentWindow) return;
+
+    closeGiftSatelliteOverlay();
+  }
+
+  function openGiftSatelliteOverlay() {
+    const context = getGiftSatelliteContext();
+
+    closeGiftSatelliteOverlay();
+
+    giftSatelliteScrollLock = {
+      htmlOverflow: document.documentElement.style.overflow,
+      bodyOverflow: document.body.style.overflow
+    };
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'getgems-marker-gift-satellite-overlay';
+
+    const backdrop = document.createElement('button');
+    backdrop.type = 'button';
+    backdrop.className = 'getgems-marker-gift-satellite-overlay__backdrop';
+    backdrop.setAttribute('aria-label', 'Close Check other markets');
+    backdrop.addEventListener('click', closeGiftSatelliteOverlay);
+
+    const panel = document.createElement('div');
+    panel.className = 'getgems-marker-gift-satellite-overlay__panel';
+
+    const frame = document.createElement('iframe');
+    frame.className = 'getgems-marker-gift-satellite-overlay__frame';
+    frame.src = buildGiftSatelliteEmbedUrl(context);
+    frame.title = 'Gift Satellite';
+    frame.loading = 'eager';
+
+    panel.appendChild(frame);
+    overlay.appendChild(backdrop);
+    overlay.appendChild(panel);
+
+    document.documentElement.appendChild(overlay);
+    document.addEventListener('keydown', handleGiftSatelliteOverlayKeydown, true);
+
+    giftSatelliteOverlay = overlay;
+  }
+
+  function updateGiftSatelliteLauncher() {
+    if (!isStandaloneNftPage()) {
+      removeGiftSatelliteLauncher();
+      closeGiftSatelliteOverlay();
+      return;
+    }
+
+    const actionsCard = document.querySelector('.NftPageActionsCard__info') || document.querySelector('.NftPageActionsCard');
+    if (!actionsCard) return;
+
+    const host = ensureGiftSatelliteLauncherHost(actionsCard);
+    let button = host.querySelector('.getgems-marker-gift-satellite-button');
+
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'getgems-marker-gift-satellite-button';
+      button.textContent = 'Check other markets';
+      button.addEventListener('click', openGiftSatelliteOverlay);
+      host.appendChild(button);
+    }
+
+    const context = getGiftSatelliteContext();
+    const isReady = Boolean(context.collectionName && context.modelName);
+
+    button.dataset.context = isReady ? 'ready' : 'partial';
+    button.title = isReady
+      ? `Gift Satellite prefill: ${context.collectionName} / ${context.modelName}`
+      : 'Open Gift Satellite. If the model is not detected automatically, the page will still open.';
   }
 
   function hasOneNanoTonTail(info) {
@@ -802,7 +1323,7 @@
     if (!info) return;
 
     // Find the actions card on the item page
-    const actionsCard = document.querySelector('.NftPageActionsCard__info');
+    const actionsCard = document.querySelector('.NftPageActionsCard__info') || document.querySelector('.NftPageActionsCard');
     if (!actionsCard) return;
 
     updateExactPriceDisplay(actionsCard, info);

@@ -320,3 +320,103 @@
 .marketplace-marker-item-container:has(.marker-fragment) .marketplace-marker-item-label {
   color: #a855f7 !important;
 }
+
+.getgems-marker-item-tools {
+  margin-top: 12px !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 10px !important;
+}
+
+.getgems-marker-gift-satellite-button {
+  appearance: none !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 42px !important;
+  padding: 10px 16px !important;
+  background:
+    linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(37, 99, 235, 0.72)),
+    #0f172a !important;
+  color: #f8fafc !important;
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.24) !important;
+  cursor: pointer !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em !important;
+  line-height: 1 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease !important;
+}
+
+.getgems-marker-gift-satellite-button:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 18px 32px rgba(2, 6, 23, 0.28) !important;
+}
+
+.getgems-marker-gift-satellite-button[data-context='partial'] {
+  background:
+    linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(249, 115, 22, 0.72)),
+    #0f172a !important;
+}
+
+.getgems-marker-gift-satellite-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483646 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 24px !important;
+}
+
+.getgems-marker-gift-satellite-overlay__backdrop {
+  appearance: none !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border: 0 !important;
+  background: rgba(2, 6, 23, 0.72) !important;
+  backdrop-filter: blur(10px) !important;
+  cursor: pointer !important;
+}
+
+.getgems-marker-gift-satellite-overlay__panel {
+  position: relative !important;
+  width: min(760px, 100%) !important;
+  height: min(860px, calc(100vh - 48px)) !important;
+  border-radius: 24px !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 32px 80px rgba(2, 6, 23, 0.42) !important;
+  background: #08111d !important;
+}
+
+.getgems-marker-gift-satellite-overlay__frame {
+  width: 100% !important;
+  height: 100% !important;
+  border: 0 !important;
+  display: block !important;
+  background: #08111d !important;
+}
+
+@media (max-width: 768px) {
+  .getgems-marker-item-tools {
+    margin-top: 10px !important;
+  }
+
+  .getgems-marker-gift-satellite-button {
+    width: 100% !important;
+  }
+
+  .getgems-marker-gift-satellite-overlay {
+    padding: 10px !important;
+  }
+
+  .getgems-marker-gift-satellite-overlay__panel {
+    width: 100% !important;
+    height: calc(100vh - 20px) !important;
+    border-radius: 18px !important;
+  }
+}
