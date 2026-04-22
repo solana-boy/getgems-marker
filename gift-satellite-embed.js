@@ -4,7 +4,11 @@
   const REMOTE_URL = 'https://gift-satellite.dev/subscription/new';
   const REMOTE_ORIGIN = 'https://gift-satellite.dev';
   const TELEGRAM_ORIGIN = 'https://t.me';
+  const TELEGRAM_WEBAPP_ORIGIN = 'https://web.telegram.org';
   const TELEGRAM_AUTH_URL = 'https://web.telegram.org/k/#?tgaddr=tg%3A%2F%2Fresolve%3Fdomain%3Dgift_satellite_bot%26appname%3Dsniper%26startapp%3D';
+  const TONNEL_BOT_DOMAIN = 'tonnel_network_bot';
+  const TONNEL_BOT_APP_NAME = 'gift';
+  const TONNEL_MARKET_URL = 'https://market.tonnel.network/';
   const AUTH_STORAGE_KEY = 'gift_satellite_auth';
   const AUTH_STALE_HINT_MS = 15 * 60 * 1000;
   const CONTEXT_FIELDS = [
@@ -68,35 +72,94 @@
     }
   }
 
+  function parseTelegramAppLaunch(url) {
+    const telegramUrl = toSafeExternalUrl(url);
+    if (!telegramUrl) return null;
+
+    try {
+      const parsedUrl = new URL(telegramUrl);
+      if (parsedUrl.origin === TELEGRAM_ORIGIN) {
+        const pathParts = parsedUrl.pathname
+          .split('/')
+          .map((part) => normalizeText(part))
+          .filter(Boolean);
+
+        if (pathParts.length < 2) {
+          return null;
+        }
+
+        const [domain, appName] = pathParts;
+        const startApp = normalizeText(parsedUrl.searchParams.get('startapp'));
+        if (!domain || !appName || !startApp) {
+          return null;
+        }
+
+        return {
+          domain: domain,
+          appName: appName,
+          startApp: startApp
+        };
+      }
+
+      if (parsedUrl.origin !== TELEGRAM_WEBAPP_ORIGIN) {
+        return null;
+      }
+
+      const hashParams = new URLSearchParams(parsedUrl.hash.replace(/^#\?/, ''));
+      const tgAddressValue = normalizeText(hashParams.get('tgaddr'));
+      if (!tgAddressValue) {
+        return null;
+      }
+
+      const tgAddress = new URL(tgAddressValue);
+      if (tgAddress.protocol !== 'tg:' || tgAddress.hostname !== 'resolve') {
+        return null;
+      }
+
+      const domain = normalizeText(tgAddress.searchParams.get('domain'));
+      const appName = normalizeText(tgAddress.searchParams.get('appname'));
+      const startApp = normalizeText(tgAddress.searchParams.get('startapp'));
+      if (!domain || !appName || !startApp) {
+        return null;
+      }
+
+      return {
+        domain: domain,
+        appName: appName,
+        startApp: startApp
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function buildTonnelMarketUrl(giftDrawerId) {
+    const url = new URL(TONNEL_MARKET_URL);
+    url.searchParams.set('giftDrawerId', giftDrawerId);
+    return url.toString();
+  }
+
   function convertTelegramUrlToWebAppUrl(url) {
     const telegramUrl = toSafeExternalUrl(url);
     if (!telegramUrl) return '';
 
     try {
-      const parsedUrl = new URL(telegramUrl);
-      if (parsedUrl.origin !== TELEGRAM_ORIGIN) {
+      const telegramLaunch = parseTelegramAppLaunch(telegramUrl);
+      if (!telegramLaunch) {
         return telegramUrl;
       }
 
-      const pathParts = parsedUrl.pathname
-        .split('/')
-        .map((part) => normalizeText(part))
-        .filter(Boolean);
-
-      if (pathParts.length < 2) {
-        return telegramUrl;
-      }
-
-      const [domain, appName] = pathParts;
-      const startApp = normalizeText(parsedUrl.searchParams.get('startapp'));
-      if (!domain || !appName || !startApp) {
-        return telegramUrl;
+      if (
+        telegramLaunch.domain === TONNEL_BOT_DOMAIN &&
+        telegramLaunch.appName === TONNEL_BOT_APP_NAME
+      ) {
+        return buildTonnelMarketUrl(telegramLaunch.startApp);
       }
 
       const tgAddress = new URL('tg://resolve');
-      tgAddress.searchParams.set('domain', domain);
-      tgAddress.searchParams.set('appname', appName);
-      tgAddress.searchParams.set('startapp', startApp);
+      tgAddress.searchParams.set('domain', telegramLaunch.domain);
+      tgAddress.searchParams.set('appname', telegramLaunch.appName);
+      tgAddress.searchParams.set('startapp', telegramLaunch.startApp);
 
       const webAppUrl = new URL('https://web.telegram.org/k/');
       webAppUrl.hash = `?tgaddr=${encodeURIComponent(tgAddress.toString())}`;
