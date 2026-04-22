@@ -2,6 +2,8 @@
   'use strict';
 
   const REMOTE_URL = 'https://gift-satellite.dev/subscription/new';
+  const REMOTE_ORIGIN = 'https://gift-satellite.dev';
+  const TELEGRAM_ORIGIN = 'https://t.me';
   const TELEGRAM_AUTH_URL = 'https://web.telegram.org/k/#?tgaddr=tg%3A%2F%2Fresolve%3Fdomain%3Dgift_satellite_bot%26appname%3Dsniper%26startapp%3D';
   const AUTH_STORAGE_KEY = 'gift_satellite_auth';
   const AUTH_STALE_HINT_MS = 15 * 60 * 1000;
@@ -16,7 +18,8 @@
     auth: null,
     remoteUrl: '',
     loadTimeoutId: null,
-    pendingAuthRefresh: false
+    pendingAuthRefresh: false,
+    remoteFrameBridgeBound: false
   };
 
   function normalizeText(value) {
@@ -26,6 +29,106 @@
       .replace(/\u00a0/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  function getRemoteFrame() {
+    return document.getElementById('gift-satellite-frame');
+  }
+
+  function tryParseFrameMessage(data) {
+    if (!data) return null;
+
+    if (typeof data === 'string') {
+      try {
+        return JSON.parse(data);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    return typeof data === 'object' ? data : null;
+  }
+
+  function toSafeExternalUrl(value, baseUrl) {
+    const normalizedValue = normalizeText(value);
+    if (!normalizedValue) return '';
+
+    try {
+      const url = baseUrl
+        ? new URL(normalizedValue, baseUrl)
+        : new URL(normalizedValue);
+
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return '';
+      }
+
+      return url.toString();
+    } catch (error) {
+      return '';
+    }
+  }
+
+  function convertTelegramUrlToWebAppUrl(url) {
+    const telegramUrl = toSafeExternalUrl(url);
+    if (!telegramUrl) return '';
+
+    try {
+      const parsedUrl = new URL(telegramUrl);
+      if (parsedUrl.origin !== TELEGRAM_ORIGIN) {
+        return telegramUrl;
+      }
+
+      const pathParts = parsedUrl.pathname
+        .split('/')
+        .map((part) => normalizeText(part))
+        .filter(Boolean);
+
+      if (pathParts.length < 2) {
+        return telegramUrl;
+      }
+
+      const [domain, appName] = pathParts;
+      const startApp = normalizeText(parsedUrl.searchParams.get('startapp'));
+      if (!domain || !appName || !startApp) {
+        return telegramUrl;
+      }
+
+      const tgAddress = new URL('tg://resolve');
+      tgAddress.searchParams.set('domain', domain);
+      tgAddress.searchParams.set('appname', appName);
+      tgAddress.searchParams.set('startapp', startApp);
+
+      const webAppUrl = new URL('https://web.telegram.org/k/');
+      webAppUrl.hash = `?tgaddr=${encodeURIComponent(tgAddress.toString())}`;
+      return webAppUrl.toString();
+    } catch (error) {
+      return telegramUrl;
+    }
+  }
+
+  function openExternalTab(url) {
+    const targetUrl = toSafeExternalUrl(url);
+    if (!targetUrl) {
+      return Promise.resolve(false);
+    }
+
+    return new Promise((resolve) => {
+      if (chrome?.tabs?.create) {
+        chrome.tabs.create({ url: targetUrl }, () => {
+          if (!chrome.runtime.lastError) {
+            resolve(true);
+            return;
+          }
+
+          window.open(targetUrl, '_blank', 'noopener,noreferrer');
+          resolve(false);
+        });
+        return;
+      }
+
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      resolve(false);
+    });
   }
 
   function getContext() {
@@ -333,6 +436,35 @@
     });
   }
 
+  function bindRemoteFrameBridge() {
+    if (state.remoteFrameBridgeBound) return;
+
+    state.remoteFrameBridgeBound = true;
+    window.addEventListener('message', (event) => {
+      const frame = getRemoteFrame();
+      if (!frame || event.source !== frame.contentWindow) return;
+      if (event.origin !== REMOTE_ORIGIN) return;
+
+      const payload = tryParseFrameMessage(event.data);
+      if (!payload?.eventType) return;
+
+      if (payload.eventType === 'web_app_open_tg_link') {
+        const telegramUrl = toSafeExternalUrl(payload.eventData?.path_full, TELEGRAM_ORIGIN);
+        if (!telegramUrl.startsWith(`${TELEGRAM_ORIGIN}/`)) return;
+
+        openExternalTab(convertTelegramUrlToWebAppUrl(telegramUrl)).catch(() => {});
+        return;
+      }
+
+      if (payload.eventType === 'web_app_open_link') {
+        const externalUrl = toSafeExternalUrl(payload.eventData?.url);
+        if (!externalUrl) return;
+
+        openExternalTab(externalUrl).catch(() => {});
+      }
+    });
+  }
+
   function syncUi() {
     state.remoteUrl = buildRemoteUrl(state.context, state.auth);
     syncOpenTabLink(state.remoteUrl, state.auth);
@@ -359,6 +491,7 @@
     renderContext(state.context);
     bindCloseButton();
     bindActionButtons();
+    bindRemoteFrameBridge();
     watchAuthStorage();
     syncUi();
   }
@@ -368,6 +501,7 @@
     renderContext(state.context);
     bindCloseButton();
     bindActionButtons();
+    bindRemoteFrameBridge();
     syncUi();
   });
 })();

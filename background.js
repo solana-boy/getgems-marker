@@ -15,6 +15,8 @@
     'gAAAAABp4uC6_2LHywV-ur5vzOG_DCBYsKDoKJFLxhxyLcBym8hQju34E2LKMymokuDaOJHjI9Wz7MOvL9Rl1SDX1-TVSKVX0nEWiDqROfZRR8tWFczi11qHFTuHdC8MmoU9ufGqJWougRBOtdZJFi03NspuTfiGdsYrc2ZJJGXtprvsbgQInO4='
   ];
 
+  const TONCENTER_REQUEST_DELAY_MIN_MS = 50;
+  const TONCENTER_REQUEST_DELAY_MAX_MS = 110;
   const TONCENTER_RETRY_DELAY_MS = 110;
   const TONCENTER_MAX_ATTEMPTS = Math.max(6, ENCRYPTED_API_KEYS_TONCENTER.length * 2);
   const GIFT_SATELLITE_AUTH_STORAGE_KEY = 'gift_satellite_auth';
@@ -23,6 +25,7 @@
   let cachedApiPassword = null;
   let cachedDecryptedToncenterApiKeys = null;
   let toncenterApiKeysPromise = null;
+  let toncenterRequestQueue = Promise.resolve();
 
   const historyLookupCache = new Map();
   const historyLookupPromises = new Map();
@@ -37,6 +40,23 @@
 
   function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function getRandomToncenterRequestDelayMs() {
+    const delayRange = TONCENTER_REQUEST_DELAY_MAX_MS - TONCENTER_REQUEST_DELAY_MIN_MS;
+    return TONCENTER_REQUEST_DELAY_MIN_MS + Math.floor(Math.random() * (delayRange + 1));
+  }
+
+  function enqueueToncenterRequest(task) {
+    const queuedTask = toncenterRequestQueue
+      .catch(() => undefined)
+      .then(async () => {
+        await delay(getRandomToncenterRequestDelayMs());
+        return task();
+      });
+
+    toncenterRequestQueue = queuedTask.catch(() => undefined);
+    return queuedTask;
   }
 
   function storageLocalGet(defaults) {
@@ -284,13 +304,15 @@
   }
 
   async function fetchTransaction(hash, attempt = 1) {
-    const apiKey = await getNextToncenterApiKey();
-    const response = await fetch(`https://toncenter.com/api/v3/transactions?hash=${encodeURIComponent(hash)}`, {
-      headers: {
-        'Accept': 'application/json',
-        'x-api-key': apiKey
-      },
-      cache: 'no-store'
+    const response = await enqueueToncenterRequest(async () => {
+      const apiKey = await getNextToncenterApiKey();
+      return fetch(`https://toncenter.com/api/v3/transactions?hash=${encodeURIComponent(hash)}`, {
+        headers: {
+          'Accept': 'application/json',
+          'x-api-key': apiKey
+        },
+        cache: 'no-store'
+      });
     });
 
     if (!response.ok) {
