@@ -32,6 +32,31 @@
 
       <p id="popup-status" class="popup__status" role="status" aria-live="polite"></p>
     </form>
+
+    <form id="additional-owner-ids-form" class="popup__form popup__form--secondary">
+      <h2 class="popup__subtitle">Additional owner IDs</h2>
+      <p class="popup__copy">
+        Highlight NFT cards owned by these Getgems user IDs in a secondary color. One ID per line.
+      </p>
+
+      <label class="popup__label" for="additional-owner-ids">Getgems user IDs</label>
+      <textarea
+        id="additional-owner-ids"
+        class="popup__input popup__input--textarea"
+        name="additional_owner_ids"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="One Getgems user ID per line"
+        rows="6"
+      ></textarea>
+
+      <div class="popup__actions">
+        <button class="popup__button popup__button--primary" type="submit">Save</button>
+        <button class="popup__button popup__button--secondary" type="button" id="clear-additional-owner-ids">Clear</button>
+      </div>
+
+      <p id="additional-owner-ids-status" class="popup__status" role="status" aria-live="polite"></p>
+    </form>
   </main>
 
   <script src="popup.js"></script>
