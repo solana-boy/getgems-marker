@@ -291,6 +291,24 @@
     return 'Sale marketplace is unknown';
   }
 
+  function resolveHistoryOwnerRole(info) {
+    if (!info) return 'none';
+
+    const isMine = (ownerId) =>
+      Boolean(ownerId && (
+        (currentUserId && ownerId === currentUserId) ||
+        additionalOwnerIds.has(ownerId)
+      ));
+
+    const sold = isMine(info.oldOwnerId);
+    const bought = isMine(info.newOwnerId);
+
+    if (sold && bought) return 'both';
+    if (sold) return 'sold-by-me';
+    if (bought) return 'bought-by-me';
+    return 'none';
+  }
+
   function syncActivitySaleOfferBadge(markerHost, hash, info) {
     const existingBadge = markerHost.querySelector('.marketplace-sale-offer-badge');
     const shouldShow = info?.marketplace === 'getgems' && info?.saleType === 'offer';
@@ -370,6 +388,11 @@
 
       syncActivitySaleMarker(markerHost, hash, historySaleData[hash]);
       syncActivitySaleOfferBadge(markerHost, hash, historySaleData[hash]);
+
+      const role = resolveHistoryOwnerRole(historySaleData[hash]);
+      row.classList.toggle('history-row--sold-by-me', role === 'sold-by-me');
+      row.classList.toggle('history-row--bought-by-me', role === 'bought-by-me');
+      row.classList.toggle('history-row--both-sides', role === 'both');
     });
   }
 
