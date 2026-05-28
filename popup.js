@@ -127,5 +127,80 @@
     }
   });
 
+  const additionalForm = document.getElementById('additional-owner-ids-form');
+  const additionalInput = document.getElementById('additional-owner-ids');
+  const additionalClearButton = document.getElementById('clear-additional-owner-ids');
+  const additionalStatus = document.getElementById('additional-owner-ids-status');
+
+  function setAdditionalStatus(message) {
+    additionalStatus.textContent = message || '';
+  }
+
+  function parseAdditionalOwnerIds(text) {
+    const lines = (text || '').split('\n');
+    const seen = new Set();
+    const result = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      result.push(trimmed);
+    }
+
+    return result;
+  }
+
+  async function notifyActiveTabToReapplyOwnerMarkers() {
+    const activeTab = await queryActiveTab();
+    if (!activeTab?.id) return;
+
+    await new Promise((resolve) => {
+      chrome.tabs.sendMessage(activeTab.id, { type: 'GETGEMS_MARKER_REAPPLY_OWNER_MARKERS' }, () => {
+        resolve();
+      });
+    });
+  }
+
+  async function loadAdditionalOwnerIds() {
+    try {
+      const items = await storageLocalGet({ additional_owner_ids: [] });
+      const value = Array.isArray(items.additional_owner_ids) ? items.additional_owner_ids : [];
+      additionalInput.value = value.join('\n');
+    } catch (error) {
+      console.error('[Getgems Marker] Failed to load additional_owner_ids:', error);
+      setAdditionalStatus('Failed to load additional owner IDs.');
+    }
+  }
+
+  additionalForm.addEventListener('submit', async(event) => {
+    event.preventDefault();
+
+    try {
+      const parsed = parseAdditionalOwnerIds(additionalInput.value);
+      await storageLocalSet({ additional_owner_ids: parsed });
+      additionalInput.value = parsed.join('\n');
+      await notifyActiveTabToReapplyOwnerMarkers();
+      setAdditionalStatus(`Saved ${parsed.length} additional owner ID${parsed.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      console.error('[Getgems Marker] Failed to save additional_owner_ids:', error);
+      setAdditionalStatus('Failed to save additional owner IDs.');
+    }
+  });
+
+  additionalClearButton.addEventListener('click', async() => {
+    try {
+      await storageLocalRemove('additional_owner_ids');
+      additionalInput.value = '';
+      await notifyActiveTabToReapplyOwnerMarkers();
+      setAdditionalStatus('Cleared additional owner IDs.');
+    } catch (error) {
+      console.error('[Getgems Marker] Failed to clear additional_owner_ids:', error);
+      setAdditionalStatus('Failed to clear additional owner IDs.');
+    }
+  });
+
   loadApiPassword();
+  loadAdditionalOwnerIds();
 })();
