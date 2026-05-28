@@ -53,6 +53,7 @@
       loadAdditionalOwnerIds(() => {
         updateMarkers();
         updateMarketplaceFloorSummary();
+        updateActivitySaleMarkers();
       });
       return undefined;
     }
@@ -74,6 +75,7 @@
     additionalOwnerIds = new Set(Array.isArray(next) ? next : []);
     updateMarkers();
     updateMarketplaceFloorSummary();
+    updateActivitySaleMarkers();
   });
 
   // Listen for messages from injected script (page context)
