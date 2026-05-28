@@ -1320,9 +1320,12 @@
       const info = nftData[nftAddress];
       if (!info) return;
 
-      const isOwn = currentUserId && info.ownerId && info.ownerId === currentUserId;
+      const ownerId = info.ownerId || null;
+      const isOwn = Boolean(currentUserId && ownerId && ownerId === currentUserId);
+      const isAdditional = Boolean(!isOwn && ownerId && additionalOwnerIds.has(ownerId));
 
-      container.classList.toggle('own-nft-item', Boolean(isOwn));
+      container.classList.toggle('own-nft-item', isOwn);
+      container.classList.toggle('own-nft-item--additional', isAdditional);
       updateExactPriceDisplay(container, info);
       syncSpecialPriceMarker(container, info);
 
