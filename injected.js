@@ -735,6 +735,16 @@
         nextEntry.marketplace = 'getgems';
       }
 
+      const typeData = item?.typeData;
+
+      if (typeof typeData?.oldOwnerUser?.id === 'string') {
+        nextEntry.oldOwnerId = typeData.oldOwnerUser.id;
+      }
+
+      if (typeof typeData?.newOwnerUser?.id === 'string') {
+        nextEntry.newOwnerId = typeData.newOwnerUser.id;
+      }
+
       if (upsertHistoryData(hash, nextEntry)) {
         changed = true;
       }
