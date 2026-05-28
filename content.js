@@ -1086,7 +1086,12 @@
         updateFloor(listing.marketplace, listing, priceNano);
       }
 
-      if (currentUserId && listing.ownerId && listing.ownerId === currentUserId) {
+      const ownerId = listing.ownerId || null;
+      const belongsToUser =
+        (currentUserId && ownerId && ownerId === currentUserId) ||
+        (ownerId && additionalOwnerIds.has(ownerId));
+
+      if (belongsToUser) {
         updateFloor('mine', listing, priceNano);
       }
     });
