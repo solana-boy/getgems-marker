@@ -89,3 +89,24 @@
   font-size: 11px;
   line-height: 1.4;
 }
+
+.popup__form--secondary {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.popup__subtitle {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #f8fafc;
+}
+
+.popup__input--textarea {
+  min-height: 96px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.4;
+}
