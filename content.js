@@ -99,12 +99,12 @@
     if (event.data?.type === 'GETGEMS_MARKER_HISTORY_DATA') {
       const incomingHistoryData = event.data.data || {};
       console.log('[Getgems Marker] Received history data via postMessage:', Object.keys(incomingHistoryData).length, 'items');
-      historySaleData = {
-        ...historySaleData,
-        ...incomingHistoryData
-      };
 
       Object.entries(incomingHistoryData).forEach(([hash, info]) => {
+        historySaleData[hash] = {
+          ...historySaleData[hash],
+          ...info
+        };
         if (info?.marketplace) {
           requestedHistoryLookupAt.delete(hash);
         }
@@ -446,13 +446,12 @@
           return;
         }
 
-        historySaleData = {
-          ...historySaleData,
-          ...response.data
-        };
-
-        Object.keys(response.data).forEach((hash) => {
-          if (response.data[hash]?.marketplace) {
+        Object.entries(response.data).forEach(([hash, info]) => {
+          historySaleData[hash] = {
+            ...historySaleData[hash],
+            ...info
+          };
+          if (info?.marketplace) {
             requestedHistoryLookupAt.delete(hash);
           }
         });
