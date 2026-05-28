@@ -13,6 +13,9 @@
   // Store current user ID
   let currentUserId = null;
 
+  // Additional Getgems user IDs whose NFTs should also be highlighted (secondary tone).
+  let additionalOwnerIds = new Set();
+
   // Track all listings encountered on the current page so floors survive virtualized scrolling.
   let marketplaceFloorState = null;
 
@@ -38,16 +41,39 @@
   injectScript();
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type !== 'GETGEMS_MARKER_RETRY_HISTORY_LOOKUPS') {
+    if (message?.type === 'GETGEMS_MARKER_RETRY_HISTORY_LOOKUPS') {
+      requestedHistoryLookupAt.clear();
+      historyLookupBatchInFlight = false;
+      requestMissingActivityHistoryLookups();
+      updateActivitySaleMarkers();
       return undefined;
     }
 
-    requestedHistoryLookupAt.clear();
-    historyLookupBatchInFlight = false;
-    requestMissingActivityHistoryLookups();
-    updateActivitySaleMarkers();
+    if (message?.type === 'GETGEMS_MARKER_REAPPLY_OWNER_MARKERS') {
+      loadAdditionalOwnerIds(() => {
+        updateMarkers();
+        updateMarketplaceFloorSummary();
+      });
+      return undefined;
+    }
 
     return undefined;
+  });
+
+  function loadAdditionalOwnerIds(callback) {
+    chrome.storage.local.get({ additional_owner_ids: [] }, (items) => {
+      const value = Array.isArray(items?.additional_owner_ids) ? items.additional_owner_ids : [];
+      additionalOwnerIds = new Set(value);
+      if (typeof callback === 'function') callback();
+    });
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.additional_owner_ids) return;
+    const next = changes.additional_owner_ids.newValue;
+    additionalOwnerIds = new Set(Array.isArray(next) ? next : []);
+    updateMarkers();
+    updateMarketplaceFloorSummary();
   });
 
   // Listen for messages from injected script (page context)
@@ -97,6 +123,8 @@
 
   function init() {
     console.log('[Getgems Marker] Content script initialized');
+
+    loadAdditionalOwnerIds();
 
     const refreshUi = debounce(() => {
       updateMarkers();
