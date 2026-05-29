@@ -378,6 +378,10 @@
       console.log('[Getgems Marker] Extracting data from page...');
       extractPageData();
     }
+
+    if (event.data?.type === 'GETGEMS_MARKER_REQUEST_GIFT_MINT') {
+      fetchGiftMintInfo(event.data.address);
+    }
   });
 
   // Extract NFT data from __NEXT_DATA__ (for item pages)
@@ -703,6 +707,56 @@
 
     } catch (e) {
       console.error('[Getgems Marker] Error fetching single NFT data:', e);
+    }
+  }
+
+  // Fetch tgGiftInfo.mintAt for a single offchain gift (on-demand, by user click)
+  async function fetchGiftMintInfo(address) {
+    if (!address) return;
+
+    try {
+      const query = `
+        query getNftByAddress($address: String!) {
+          nft(address: $address) {
+            __typename
+            address
+            kind
+            tgGiftInfo { mintAvailable mintAt }
+          }
+        }
+      `;
+
+      const headers = capturedHeaders
+        ? { ...capturedHeaders, 'Content-Type': 'application/json' }
+        : { 'Content-Type': 'application/json' };
+
+      const response = await originalFetch('https://getgems.io/graphql/', {
+        method: 'POST',
+        headers: headers,
+        credentials: 'include',
+        body: JSON.stringify({
+          operationName: 'getNftByAddress',
+          query: query,
+          variables: { address: address }
+        })
+      });
+
+      const data = await response.json();
+      const info = data?.data?.nft?.tgGiftInfo || null;
+
+      window.postMessage({
+        type: 'GETGEMS_MARKER_GIFT_MINT_DATA',
+        address: address,
+        mintAt: typeof info?.mintAt === 'number' ? info.mintAt : null,
+        mintAvailable: Boolean(info?.mintAvailable)
+      }, '*');
+    } catch (e) {
+      console.error('[Getgems Marker] Error fetching gift mint info:', e);
+      window.postMessage({
+        type: 'GETGEMS_MARKER_GIFT_MINT_DATA',
+        address: address,
+        error: true
+      }, '*');
     }
   }
 
