@@ -1123,6 +1123,8 @@
 
     if (itemInfo && itemInfo.kind === 'OffchainNft' && itemHost) {
       syncGiftMintButton(itemHost, itemAddress);
+    } else if (itemHost) {
+      removeGiftMintButton(itemHost);
     }
   }
 
