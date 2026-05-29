@@ -100,6 +100,7 @@
       updateItemPageMarker();
       updateGiftSatelliteLauncher();
       updateGiftMintButtons();
+      updateGiftMintToolbar();
       updateMarketplaceFloorSummary();
     }
 
@@ -112,6 +113,7 @@
         }
       }
       updateGiftMintButtons();
+      updateGiftMintToolbar();
     }
     if (event.data?.type === 'GETGEMS_MARKER_HISTORY_DATA') {
       const incomingHistoryData = event.data.data || {};
@@ -149,6 +151,7 @@
       updateMarkers();
       updateItemPageMarker();
       updateGiftMintButtons();
+      updateGiftMintToolbar();
       updateGiftSatelliteLauncher();
       updateMarketplaceFloorSummary();
       updateActivitySaleMarkers();
@@ -168,6 +171,7 @@
       updateMarkers();
       updateItemPageMarker();
       updateGiftMintButtons();
+      updateGiftMintToolbar();
       updateGiftSatelliteLauncher();
       updateMarketplaceFloorSummary();
       updateActivitySaleMarkers();
@@ -1126,6 +1130,130 @@
     } else if (itemHost) {
       removeGiftMintButton(itemHost);
     }
+  }
+
+  // --- Reveal-all batch (mini toolbar above the grid) ------------------------
+
+  const GIFT_MINT_BATCH_DELAY_MS = 250; // throttle between GraphQL sends to avoid 429
+  let giftMintBatchRunning = false;
+  let giftMintBatchProgress = null;
+
+  function giftMintDelay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function collectRenderedOffchainGiftAddresses() {
+    const addresses = [];
+    const seen = new Set();
+
+    document.querySelectorAll('.NftItemContainer').forEach((container) => {
+      const address = extractNftAddress(container);
+      if (!address || seen.has(address)) return;
+
+      const info = nftData[address];
+      if (!info || info.kind !== 'OffchainNft') return;
+
+      seen.add(address);
+      addresses.push(address);
+    });
+
+    return addresses;
+  }
+
+  async function revealAllGiftMints() {
+    if (giftMintBatchRunning) return;
+
+    const pending = collectRenderedOffchainGiftAddresses().filter(
+      (address) => !giftMintData[address] && !pendingGiftMintRequests.has(address)
+    );
+    if (pending.length === 0) return;
+
+    giftMintBatchRunning = true;
+    giftMintBatchProgress = { done: 0, total: pending.length };
+    updateGiftMintToolbar();
+
+    for (let i = 0; i < pending.length; i++) {
+      const address = pending[i];
+
+      // Re-check: a per-card click may have resolved/queued it meanwhile.
+      if (!giftMintData[address] && !pendingGiftMintRequests.has(address)) {
+        pendingGiftMintRequests.add(address);
+        window.postMessage({ type: 'GETGEMS_MARKER_REQUEST_GIFT_MINT', address }, '*');
+        await giftMintDelay(GIFT_MINT_BATCH_DELAY_MS);
+      }
+
+      giftMintBatchProgress = { done: i + 1, total: pending.length };
+      updateGiftMintToolbar();
+    }
+
+    giftMintBatchRunning = false;
+    giftMintBatchProgress = null;
+    updateGiftMintToolbar();
+  }
+
+  function onRevealAllGiftMintsClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    revealAllGiftMints();
+  }
+
+  function getGiftMintToolbarAnchor() {
+    // Sit next to the floor panel when it exists (mixed pages); otherwise anchor like it.
+    return document.querySelector('.marketplace-floor-summary') || getMarketplaceSummaryAnchor();
+  }
+
+  function renderRevealAllButton(button) {
+    let label = button.querySelector('.gift-mint-reveal-all__label');
+    if (!label) {
+      button.replaceChildren(createGiftMintClockIcon());
+      label = document.createElement('span');
+      label.className = 'gift-mint-reveal-all__label';
+      button.appendChild(label);
+    }
+
+    const running = giftMintBatchRunning && giftMintBatchProgress;
+    const nextText = running
+      ? `${giftMintBatchProgress.done}/${giftMintBatchProgress.total}`
+      : 'Mint times';
+    const nextState = running ? 'running' : 'idle';
+
+    if (label.textContent !== nextText) label.textContent = nextText;
+    if (button.dataset.state !== nextState) button.dataset.state = nextState;
+  }
+
+  function ensureGiftMintToolbar() {
+    const anchor = getGiftMintToolbarAnchor();
+    if (!anchor) return null;
+
+    let toolbar = document.querySelector('.gift-mint-toolbar');
+    if (!toolbar) {
+      toolbar = document.createElement('section');
+      toolbar.className = 'gift-mint-toolbar';
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'gift-mint-reveal-all';
+      button.title = 'Load mint countdown for all offchain gifts on this page';
+      button.addEventListener('click', onRevealAllGiftMintsClick);
+
+      toolbar.appendChild(button);
+    }
+
+    if (toolbar.previousElementSibling !== anchor) {
+      anchor.insertAdjacentElement('afterend', toolbar);
+    }
+
+    renderRevealAllButton(toolbar.querySelector('.gift-mint-reveal-all'));
+    return toolbar;
+  }
+
+  function updateGiftMintToolbar() {
+    if (collectRenderedOffchainGiftAddresses().length === 0) {
+      document.querySelector('.gift-mint-toolbar')?.remove();
+      return;
+    }
+
+    ensureGiftMintToolbar();
   }
 
   function hasOneNanoTonTail(info) {
