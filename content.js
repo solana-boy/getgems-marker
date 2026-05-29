@@ -27,6 +27,11 @@
 
   let historyLookupBatchInFlight = false;
 
+  // Gift mint countdown: cache of successfully fetched { mintAt, mintAvailable } by address.
+  let giftMintData = {};
+  // Addresses with a mint lookup currently in flight (dedupe + ignore repeat clicks).
+  const pendingGiftMintRequests = new Set();
+
   // Inject the fetch interceptor into the page context
   function injectScript() {
     const script = document.createElement('script');
@@ -1020,6 +1025,91 @@
     if (days > 0) return `${days}d ${hours}h`;
     if (hours > 0) return `${hours}h`;
     return '<1h';
+  }
+
+  function createGiftMintClockIcon() {
+    const icon = document.createElement('img');
+    icon.className = 'gift-mint-countdown__icon';
+    icon.src = chrome.runtime.getURL('clock.svg');
+    icon.alt = '';
+    return icon;
+  }
+
+  function onGiftMintButtonClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const button = event.currentTarget;
+    const address = button.dataset.address;
+    if (!address) return;
+    if (giftMintData[address]) return;                 // resolved — do nothing
+    if (pendingGiftMintRequests.has(address)) return;  // request already in flight
+
+    pendingGiftMintRequests.add(address);
+    window.postMessage({ type: 'GETGEMS_MARKER_REQUEST_GIFT_MINT', address }, '*');
+  }
+
+  function renderGiftMintButton(button, address) {
+    const cached = giftMintData[address];
+    const nextRender = cached
+      ? formatMintCountdown(cached.mintAt, cached.mintAvailable)
+      : '__clock__';
+
+    if (button.dataset.render === nextRender) return;  // avoid needless DOM mutations
+    button.dataset.render = nextRender;
+
+    if (cached) {
+      button.dataset.state = 'resolved';
+      button.textContent = nextRender;                     // safe: text only
+    } else {
+      button.dataset.state = 'idle';
+      button.replaceChildren(createGiftMintClockIcon());   // no innerHTML
+    }
+  }
+
+  function syncGiftMintButton(host, address) {
+    let button = host.querySelector('.gift-mint-countdown');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'gift-mint-countdown';
+      button.dataset.address = address;
+      button.addEventListener('click', onGiftMintButtonClick);
+      host.appendChild(button);
+    } else if (button.dataset.address !== address) {
+      // DOM node reused for a different NFT (virtualized list) — rebind + force re-render.
+      button.dataset.address = address;
+      button.dataset.render = '';
+    }
+    renderGiftMintButton(button, address);
+  }
+
+  function removeGiftMintButton(scope) {
+    scope.querySelector?.('.gift-mint-countdown')?.remove();
+  }
+
+  function updateGiftMintButtons() {
+    if (Object.keys(nftData).length === 0) return;
+
+    document.querySelectorAll('.NftItemContainer').forEach((container) => {
+      const address = extractNftAddress(container);
+      const info = address ? nftData[address] : null;
+
+      if (!info || info.kind !== 'OffchainNft') {
+        removeGiftMintButton(container);
+        return;
+      }
+
+      syncGiftMintButton(ensureCardControlsContainer(container), address);
+    });
+
+    const itemAddress = extractCurrentItemPageAddress();
+    const itemInfo = itemAddress ? nftData[itemAddress] : null;
+    const itemHost = document.querySelector('.marketplace-marker-item-container');
+
+    if (itemInfo && itemInfo.kind === 'OffchainNft' && itemHost) {
+      syncGiftMintButton(itemHost, itemAddress);
+    }
   }
 
   function hasOneNanoTonTail(info) {
