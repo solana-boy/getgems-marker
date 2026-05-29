@@ -442,3 +442,42 @@
     border-radius: 18px !important;
   }
 }
+
+.gift-mint-countdown {
+  appearance: none !important;
+  min-width: 24px !important;
+  height: 24px !important;
+  padding: 0 7px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35) !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  flex-shrink: 0 !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+.gift-mint-countdown:hover {
+  transform: scale(1.05) !important;
+  transition: transform 0.15s ease !important;
+}
+
+.gift-mint-countdown[data-state='resolved'] {
+  cursor: default !important;
+}
+
+.gift-mint-countdown__icon {
+  width: 12px !important;
+  height: 12px !important;
+  display: block !important;
+  pointer-events: none !important;
+}
