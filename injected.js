@@ -625,6 +625,20 @@
     }
   }
 
+  // Build GraphQL request headers, guaranteeing exactly one Content-Type. capturedHeaders may
+  // already contain a (lowercase) "content-type" key; spreading it and then adding "Content-Type"
+  // sends two case-variant headers that fetch merges into an invalid value the server rejects.
+  function buildGraphqlHeaders(captured) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (captured) {
+      for (const [key, value] of Object.entries(captured)) {
+        if (key.toLowerCase() === 'content-type') continue;
+        headers[key] = value;
+      }
+    }
+    return headers;
+  }
+
   // Fetch data for a single NFT by address (for /nft/ADDRESS pages)
   async function fetchSingleNftData(nftAddress) {
     try {
@@ -663,13 +677,7 @@
         address: nftAddress
       };
 
-      // Use captured headers if available, otherwise use minimal headers
-      const headers = capturedHeaders ? {
-        ...capturedHeaders,
-        'Content-Type': 'application/json',
-      } : {
-        'Content-Type': 'application/json',
-      };
+      const headers = buildGraphqlHeaders(capturedHeaders);
 
       const response = await originalFetch('https://getgems.io/graphql/', {
         method: 'POST',
@@ -726,9 +734,7 @@
         }
       `;
 
-      const headers = capturedHeaders
-        ? { ...capturedHeaders, 'Content-Type': 'application/json' }
-        : { 'Content-Type': 'application/json' };
+      const headers = buildGraphqlHeaders(capturedHeaders);
 
       const response = await originalFetch('https://getgems.io/graphql/', {
         method: 'POST',
