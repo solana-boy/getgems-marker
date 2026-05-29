@@ -41,7 +41,8 @@
         "fragment.svg",
         "gift-satellite-embed.html",
         "gift-satellite-embed.css",
-        "gift-satellite-embed.js"
+        "gift-satellite-embed.js",
+        "clock.svg"
       ],
       "matches": ["https://getgems.io/*"]
     }
