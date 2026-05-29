@@ -1007,6 +1007,21 @@
       : 'Open Gift Satellite. If the model is not detected automatically, the page will still open.';
   }
 
+  // --- Gift mint countdown ---------------------------------------------------
+
+  function formatMintCountdown(mintAt, mintAvailable) {
+    const diffMs = mintAt * 1000 - Date.now();
+    if (mintAvailable || diffMs <= 0) return 'now';
+
+    const totalHours = Math.floor(diffMs / 3600000);
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h`;
+    return '<1h';
+  }
+
   function hasOneNanoTonTail(info) {
     return Boolean(info?.hasOneNanoTonTail && info?.fullPriceTon);
   }
