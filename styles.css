@@ -483,6 +483,10 @@
 }
 
 .gift-mint-toolbar {
+  position: sticky !important;
+  top: 12px !important;
+  z-index: 2147483000 !important;
+  align-self: flex-start !important;
   display: flex !important;
   align-items: center !important;
   gap: 10px !important;
@@ -491,6 +495,13 @@
   border-radius: 12px !important;
   background: rgba(19, 19, 20, 0.92) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+@media (max-width: 900px) {
+  .gift-mint-toolbar {
+    top: 8px !important;
+  }
 }
 
 .gift-mint-reveal-all {
