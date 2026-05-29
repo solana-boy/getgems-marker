@@ -99,7 +99,19 @@
       updateMarkers();
       updateItemPageMarker();
       updateGiftSatelliteLauncher();
+      updateGiftMintButtons();
       updateMarketplaceFloorSummary();
+    }
+
+    if (event.data?.type === 'GETGEMS_MARKER_GIFT_MINT_DATA') {
+      const { address, mintAt, mintAvailable, error } = event.data;
+      if (address) {
+        pendingGiftMintRequests.delete(address);
+        if (!error && typeof mintAt === 'number') {
+          giftMintData[address] = { mintAt, mintAvailable: Boolean(mintAvailable) };
+        }
+      }
+      updateGiftMintButtons();
     }
     if (event.data?.type === 'GETGEMS_MARKER_HISTORY_DATA') {
       const incomingHistoryData = event.data.data || {};
@@ -136,6 +148,7 @@
     const refreshUi = debounce(() => {
       updateMarkers();
       updateItemPageMarker();
+      updateGiftMintButtons();
       updateGiftSatelliteLauncher();
       updateMarketplaceFloorSummary();
       updateActivitySaleMarkers();
@@ -154,6 +167,7 @@
     setInterval(() => {
       updateMarkers();
       updateItemPageMarker();
+      updateGiftMintButtons();
       updateGiftSatelliteLauncher();
       updateMarketplaceFloorSummary();
       updateActivitySaleMarkers();
