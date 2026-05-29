@@ -534,6 +534,11 @@
   cursor: default !important;
 }
 
+.gift-mint-reveal-all[data-state='limited'] {
+  background: rgba(120, 53, 15, 0.92) !important;
+  color: #fbbf24 !important;
+}
+
 .gift-mint-reveal-all .gift-mint-countdown__icon {
   width: 14px !important;
   height: 14px !important;

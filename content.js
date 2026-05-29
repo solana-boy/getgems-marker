@@ -105,12 +105,16 @@
     }
 
     if (event.data?.type === 'GETGEMS_MARKER_GIFT_MINT_DATA') {
-      const { address, mintAt, mintAvailable, error } = event.data;
+      const { address, mintAt, mintAvailable, error, rateLimited } = event.data;
       if (address) {
         pendingGiftMintRequests.delete(address);
         if (!error && typeof mintAt === 'number') {
           giftMintData[address] = { mintAt, mintAvailable: Boolean(mintAvailable) };
         }
+      }
+      if (rateLimited) {
+        giftMintBatchAbort = true;   // stop the running batch, don't deepen the ban
+        giftMintRateLimited = true;
       }
       updateGiftMintButtons();
       updateGiftMintToolbar();
@@ -1134,9 +1138,11 @@
 
   // --- Reveal-all batch (mini toolbar above the grid) ------------------------
 
-  const GIFT_MINT_BATCH_DELAY_MS = 250; // throttle between GraphQL sends to avoid 429
+  const GIFT_MINT_BATCH_DELAY_MS = 1500; // throttle between GraphQL sends to avoid the anti-abuse ban
   let giftMintBatchRunning = false;
   let giftMintBatchProgress = null;
+  let giftMintBatchAbort = false;   // set when a rate-limit/ban response arrives mid-batch
+  let giftMintRateLimited = false;  // reflect the ban state on the toolbar button
 
   function giftMintDelay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1169,10 +1175,14 @@
     if (pending.length === 0) return;
 
     giftMintBatchRunning = true;
+    giftMintBatchAbort = false;
+    giftMintRateLimited = false;
     giftMintBatchProgress = { done: 0, total: pending.length };
     updateGiftMintToolbar();
 
     for (let i = 0; i < pending.length; i++) {
+      if (giftMintBatchAbort) break; // got a rate-limit/ban response — stop hammering
+
       const address = pending[i];
 
       // Re-check: a per-card click may have resolved/queued it meanwhile.
@@ -1212,10 +1222,15 @@
     }
 
     const running = giftMintBatchRunning && giftMintBatchProgress;
-    const nextText = running
-      ? `${giftMintBatchProgress.done}/${giftMintBatchProgress.total}`
-      : 'Mint times';
-    const nextState = running ? 'running' : 'idle';
+    let nextText = 'Mint times';
+    let nextState = 'idle';
+    if (running) {
+      nextText = `${giftMintBatchProgress.done}/${giftMintBatchProgress.total}`;
+      nextState = 'running';
+    } else if (giftMintRateLimited) {
+      nextText = 'Rate limited — wait';
+      nextState = 'limited';
+    }
 
     if (label.textContent !== nextText) label.textContent = nextText;
     if (button.dataset.state !== nextState) button.dataset.state = nextState;

@@ -748,6 +748,20 @@
       });
 
       const data = await response.json();
+      const errorCode = data?.errors?.[0]?.extensions?.code || data?.errors?.[0]?.code || null;
+
+      // getgems anti-abuse: GRAPHQL_STRANGE_QUERY ban or HTTP 429. Surface it so the
+      // batch loop can stop immediately instead of deepening the ban.
+      if (response.status === 429 || errorCode === 'GRAPHQL_STRANGE_QUERY') {
+        window.postMessage({
+          type: 'GETGEMS_MARKER_GIFT_MINT_DATA',
+          address: address,
+          error: true,
+          rateLimited: true
+        }, '*');
+        return;
+      }
+
       const info = data?.data?.alphaNftItemByAddress?.tgGiftInfo || null;
 
       window.postMessage({
