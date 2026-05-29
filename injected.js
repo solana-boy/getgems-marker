@@ -724,8 +724,8 @@
 
     try {
       const query = `
-        query getNftByAddress($address: String!) {
-          nft(address: $address) {
+        query getGiftMintInfo($address: String!) {
+          alphaNftItemByAddress(address: $address) {
             __typename
             address
             kind
@@ -741,14 +741,14 @@
         headers: headers,
         credentials: 'include',
         body: JSON.stringify({
-          operationName: 'getNftByAddress',
+          operationName: 'getGiftMintInfo',
           query: query,
           variables: { address: address }
         })
       });
 
       const data = await response.json();
-      const info = data?.data?.nft?.tgGiftInfo || null;
+      const info = data?.data?.alphaNftItemByAddress?.tgGiftInfo || null;
 
       window.postMessage({
         type: 'GETGEMS_MARKER_GIFT_MINT_DATA',

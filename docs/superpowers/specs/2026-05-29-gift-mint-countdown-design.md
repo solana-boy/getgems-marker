@@ -62,7 +62,9 @@ function formatMintCountdown(mintAt, mintAvailable) {
 
 ## Запрос (`injected.js`, контекст страницы)
 
-Запрос идёт из контекста страницы (там перехваченные заголовки и куки). Используем резолвер `nft(address:)` (операция `getNftByAddress`), но своим коротким query — **без** persisted-хэша, чтобы не зависеть от обновлений фронта. Резолвер `nft(address:)` — ровно тот, что сайт зовёт для offchain-подарков, поэтому он корректно принимает спец-адреса вида `EQf_tg_gift_______…`.
+Запрос идёт из контекста страницы (там перехваченные заголовки и куки). Используем поле `alphaNftItemByAddress(address:)` своим коротким query — **без** persisted-хэша, чтобы не зависеть от обновлений фронта.
+
+Важно (грабли): у сайта есть persisted-операция `getNftByAddress`, и в её ответе ключ `data.nft` — это **алиас**. Реального поля `nft` в схеме нет (`Cannot query field "nft" on type "Query"`). Настоящее поле — `alphaNftItemByAddress` (его использует и сам фронт Getgems в своих JS-бандлах, и существующий `fetchSingleNftData`), оно возвращает `NftItem` с `tgGiftInfo` и принимает спец-адреса вида `EQf_tg_gift_______…`.
 
 ### Слушатель сообщения
 
@@ -82,8 +84,8 @@ async function fetchGiftMintInfo(address) {
 
   try {
     const query = `
-      query getNftByAddress($address: String!) {
-        nft(address: $address) {
+      query getGiftMintInfo($address: String!) {
+        alphaNftItemByAddress(address: $address) {
           __typename
           address
           kind
@@ -92,23 +94,21 @@ async function fetchGiftMintInfo(address) {
       }
     `;
 
-    const headers = capturedHeaders
-      ? { ...capturedHeaders, 'Content-Type': 'application/json' }
-      : { 'Content-Type': 'application/json' };
+    const headers = buildGraphqlHeaders(capturedHeaders);  // exactly one Content-Type
 
     const response = await originalFetch('https://getgems.io/graphql/', {
       method: 'POST',
       headers,
       credentials: 'include',
       body: JSON.stringify({
-        operationName: 'getNftByAddress',
+        operationName: 'getGiftMintInfo',
         query,
         variables: { address }
       })
     });
 
     const data = await response.json();
-    const info = data?.data?.nft?.tgGiftInfo || null;
+    const info = data?.data?.alphaNftItemByAddress?.tgGiftInfo || null;
 
     window.postMessage({
       type: 'GETGEMS_MARKER_GIFT_MINT_DATA',
@@ -329,7 +329,7 @@ function updateGiftMintButtons() {
   └─ pendingGiftMintRequests.add(address)
   └─ postMessage GETGEMS_MARKER_REQUEST_GIFT_MINT { address }
        └─ injected.js fetchGiftMintInfo(address)
-            └─ POST graphql/ (nft(address:){ tgGiftInfo{ mintAt mintAvailable } })
+            └─ POST graphql/ (alphaNftItemByAddress(address:){ tgGiftInfo{ mintAt mintAvailable } })
                  └─ postMessage GETGEMS_MARKER_GIFT_MINT_DATA { address, mintAt, mintAvailable | error }
                       └─ content.js: giftMintData[address] = {…} (только успех)
                            └─ updateGiftMintButtons → renderGiftMintButton (показывает "3d 5h" / "now")
@@ -362,7 +362,7 @@ setInterval 2s / MutationObserver (content.js)
 ## Failure Modes
 
 - **`capturedHeaders === null`** (клик до первого GraphQL-запроса страницы) → fallback на минимальные заголовки + `credentials:'include'`. На практике к моменту рендера карточек заголовки уже перехвачены.
-- **Сервер не принял короткий `getNftByAddress`** (если Getgems когда-либо начнёт требовать persisted-запросы) → запрос вернёт ошибку, кнопка останется часами. План B: сменить `operationName` на собственный (резолвится по тексту query, не по имени) либо перейти на persisted-форму из `graphql.txt`.
+- **Сервер отверг запрос (`GRAPHQL_VALIDATION_FAILED` / `BAD_REQUEST`)** → кнопка останется часами. Уже учтённые грабли: (1) поле называется `alphaNftItemByAddress`, а не `nft` (последнее — алиас в persisted-доке сайта); (2) ровно один заголовок `Content-Type` (см. `buildGraphqlHeaders`). План B на будущие поломки: взять свежий `persistedQuery.sha256Hash` из реальных запросов фронта и слать persisted-форму.
 - **Нет `tgGiftInfo` / `mintAt = null`** в ответе → `GETGEMS_MARKER_GIFT_MINT_DATA` с `mintAt: null`, в кэш не пишем, кнопка возвращается в `idle`.
 - **Двойной клик** → второй клик отсекается через `pendingGiftMintRequests`.
 - **Клик по кнопке не должен открывать карточку** → `preventDefault()` + `stopPropagation()` в `onGiftMintButtonClick`.
