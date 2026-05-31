@@ -105,7 +105,7 @@
     }
 
     if (event.data?.type === 'GETGEMS_MARKER_GIFT_MINT_DATA') {
-      const { address, mintAt, mintAvailable, error, rateLimited } = event.data;
+      const { address, mintAt, mintAvailable, error, rateLimited, persistedQueryStale } = event.data;
       if (address) {
         pendingGiftMintRequests.delete(address);
         if (!error && typeof mintAt === 'number') {
@@ -115,6 +115,10 @@
       if (rateLimited) {
         giftMintBatchAbort = true;   // stop the running batch, don't deepen the ban
         giftMintRateLimited = true;
+      }
+      if (persistedQueryStale) {
+        giftMintBatchAbort = true;   // hash rotated — stop; a page reload re-harvests it
+        giftMintPersistedQueryStale = true;
       }
       updateGiftMintButtons();
       updateGiftMintToolbar();
@@ -1143,6 +1147,7 @@
   let giftMintBatchProgress = null;
   let giftMintBatchAbort = false;   // set when a rate-limit/ban response arrives mid-batch
   let giftMintRateLimited = false;  // reflect the ban state on the toolbar button
+  let giftMintPersistedQueryStale = false; // set when the persisted-query hash needs a page reload
 
   function giftMintDelay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1177,6 +1182,7 @@
     giftMintBatchRunning = true;
     giftMintBatchAbort = false;
     giftMintRateLimited = false;
+    giftMintPersistedQueryStale = false;
     giftMintBatchProgress = { done: 0, total: pending.length };
     updateGiftMintToolbar();
 
@@ -1227,6 +1233,9 @@
     if (running) {
       nextText = `${giftMintBatchProgress.done}/${giftMintBatchProgress.total}`;
       nextState = 'running';
+    } else if (giftMintPersistedQueryStale) {
+      nextText = 'Reload page to refresh';
+      nextState = 'limited';
     } else if (giftMintRateLimited) {
       nextText = 'Rate limited — wait';
       nextState = 'limited';

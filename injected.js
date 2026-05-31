@@ -16,6 +16,15 @@
   // Store current user ID from getCurrentUser response
   let currentUserId = null;
 
+  // Persisted-query hashes harvested from the page's own GraphQL traffic, keyed by
+  // operationName. getgems' anti-abuse bans ad-hoc queries ("GRAPHQL_STRANGE_QUERY"),
+  // so gift-mint lookups reuse the site's registered persisted query instead of a custom one.
+  const persistedQueryHashes = {};
+
+  // Fallback hash for the getNftByAddress persisted query (captured 2026-05). Used until a
+  // fresh one is harvested from live traffic, so a hash rotation by getgems self-heals on reload.
+  const DEFAULT_GIFT_QUERY_HASH = '5fc79e5706e1c3816bbae655d60e86de25c996bc5e9d16da0dcad320f963578a';
+
   // Override fetch to intercept GraphQL responses
   const originalFetch = window.fetch;
 
@@ -37,6 +46,21 @@
         } catch (e) {}
       }
       console.log('[Getgems Marker] GraphQL request:', operationName || 'unknown');
+
+      // Harvest the persisted-query hash from the page's own requests so gift-mint lookups can
+      // reuse it (and self-heal when getgems rotates it). Only GET persisted queries carry it.
+      if (operationName) {
+        const extMatch = url.match(/extensions=([^&]+)/);
+        if (extMatch) {
+          try {
+            const ext = JSON.parse(decodeURIComponent(extMatch[1]));
+            const hash = ext?.persistedQuery?.sha256Hash;
+            if (typeof hash === 'string' && hash) {
+              persistedQueryHashes[operationName] = hash;
+            }
+          } catch (e) {}
+        }
+      }
       
       // Capture headers from GraphQL requests for later use
       if (options.headers && !capturedHeaders) {
@@ -718,33 +742,28 @@
     }
   }
 
-  // Fetch tgGiftInfo.mintAt for a single offchain gift (on-demand, by user click)
+  // Fetch tgGiftInfo.mintAt for a single offchain gift (on-demand, by user click). Mimics
+  // getgems' own getNftByAddress persisted query (GET, hash-only) so it reads as legitimate
+  // site traffic and does not trip the GRAPHQL_STRANGE_QUERY anti-abuse ban that a custom
+  // query triggers. The response is the full NFT object; we only read tgGiftInfo from it.
   async function fetchGiftMintInfo(address) {
     if (!address) return;
 
     try {
-      const query = `
-        query getGiftMintInfo($address: String!) {
-          alphaNftItemByAddress(address: $address) {
-            __typename
-            address
-            kind
-            tgGiftInfo { mintAvailable mintAt }
-          }
-        }
-      `;
+      const hash = persistedQueryHashes['getNftByAddress'] || DEFAULT_GIFT_QUERY_HASH;
+      const variables = encodeURIComponent(JSON.stringify({ address: address }));
+      const extensions = encodeURIComponent(JSON.stringify({
+        clientLibrary: { name: '@apollo/client', version: '4.1.9' },
+        persistedQuery: { version: 1, sha256Hash: hash }
+      }));
+      const url = `https://getgems.io/graphql/?operationName=getNftByAddress&variables=${variables}&extensions=${extensions}`;
 
       const headers = buildGraphqlHeaders(capturedHeaders);
 
-      const response = await originalFetch('https://getgems.io/graphql/', {
-        method: 'POST',
+      const response = await originalFetch(url, {
+        method: 'GET',
         headers: headers,
-        credentials: 'include',
-        body: JSON.stringify({
-          operationName: 'getGiftMintInfo',
-          query: query,
-          variables: { address: address }
-        })
+        credentials: 'include'
       });
 
       const data = await response.json();
@@ -762,7 +781,19 @@
         return;
       }
 
-      const info = data?.data?.alphaNftItemByAddress?.tgGiftInfo || null;
+      // Persisted-query hash went stale (getgems redeployed with a new one). Reloading the
+      // page re-harvests a fresh hash from live traffic, so prompt the user to do that.
+      if (errorCode === 'PERSISTED_QUERY_NOT_FOUND') {
+        window.postMessage({
+          type: 'GETGEMS_MARKER_GIFT_MINT_DATA',
+          address: address,
+          error: true,
+          persistedQueryStale: true
+        }, '*');
+        return;
+      }
+
+      const info = data?.data?.nft?.tgGiftInfo || null;
 
       window.postMessage({
         type: 'GETGEMS_MARKER_GIFT_MINT_DATA',
