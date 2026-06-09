@@ -823,9 +823,13 @@
       const hash = normalizeHash(item.hash);
       if (!hash) return;
 
+      // saleType is intentionally NOT set here: the history feed cannot tell an offer
+      // from a plain sale, and it re-posts the whole accumulated map on every scroll. A
+      // 'sale' placeholder would clobber the authoritative saleType:'offer' that
+      // background.js resolves from on-chain data, erasing the "offer" badge. Let
+      // background.js own saleType entirely.
       const nextEntry = {
-        offchain: Boolean(item.offchain),
-        saleType: 'sale'
+        offchain: Boolean(item.offchain)
       };
 
       if (item?.nft?.name) {
