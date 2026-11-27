@@ -152,6 +152,16 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
 
+.marketplace-marker-logo:is(.marker-mrkt img, .marker-portals img, .marker-telegram img) {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+.marketplace-marker-item-container:has(:is(.marker-mrkt, .marker-portals, .marker-telegram)) {
+  background: rgba(148, 163, 184, 0.15) !important;
+}
+
 /* Getgems style */
 .marker-getgems {
   background: #2563eb !important;

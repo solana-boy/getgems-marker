@@ -6,6 +6,13 @@
 
   // Store NFT data received from injected script
   let nftData = {};
+  const listingMarketplaces = new Map([
+    ['getgems', { name: 'Getgems', logo: 'getgems.svg', fee: ' (0.3 TON fee)' }],
+    ['fragment', { name: 'Fragment', logo: 'fragment.svg', fee: ' (no fee)' }],
+    ['mrkt', { name: 'MRKT', logo: 'mrkt.jpg' }],
+    ['portals', { name: 'Portals', logo: 'portals.jpg' }],
+    ['telegram', { name: 'Telegram', logo: 'telegram.svg' }]
+  ]);
 
   // Store sale history marketplace data keyed by transaction hash
   let historySaleData = {};
@@ -1605,24 +1612,43 @@
     }
   }
 
+  function detectMarketplaceInListing(root) {
+    const logos = root.querySelectorAll('img[src*="mrkt."], img[src*="portals."]');
+    for (const logo of logos) {
+      let url;
+      try {
+        url = new URL(logo.src);
+        if (url.origin !== window.location.origin) continue;
+        if (url.pathname === '/_next/image') {
+          url = new URL(url.searchParams.get('url'), window.location.origin);
+        }
+      } catch {
+        continue;
+      }
+      if (url.origin !== window.location.origin) continue;
+
+      const match = /^\/_next\/static\/media\/(mrkt|portals)\.[0-9a-f]+\.jpg$/i.exec(url.pathname);
+      if (match) return match[1].toLowerCase();
+    }
+
+    const telegramLinks = root.querySelectorAll('a[href^="https://t.me/nft/"], a[href^="tg://nft?"]');
+    for (const link of telegramLinks) {
+      const label = link.getAttribute('aria-label') || link.textContent.trim() || link.title;
+      if (/\bbuy\b|купить/iu.test(label)) return 'telegram';
+    }
+
+    return null;
+  }
+
   // Update markers on collection listing and user pages
   function updateMarkers() {
-    const dataCount = Object.keys(nftData).length;
-    if (dataCount === 0) return;
-
     const containers = document.querySelectorAll('.NftItemContainer');
-    if (containers.length === 0) return;
-
-    let marked = 0;
-
     containers.forEach(container => {
       const nftAddress = extractNftAddress(container);
       if (!nftAddress) return;
 
       const info = nftData[nftAddress];
-      if (!info) return;
-
-      const ownerId = info.ownerId || null;
+      const ownerId = info?.ownerId || null;
       const isOwn = Boolean(currentUserId && ownerId && ownerId === currentUserId);
       const isAdditional = Boolean(!isOwn && ownerId && additionalOwnerIds.has(ownerId));
 
@@ -1631,100 +1657,65 @@
       updateExactPriceDisplay(container, info);
       syncSpecialPriceMarker(container, info);
 
-      if (container.querySelector('.marketplace-marker')) return;
-
-      addMarkerToCard(container, info.marketplace);
-      marked++;
+      const marketplace = detectMarketplaceInListing(container) || info?.marketplace;
+      syncListingMarker(container, marketplace);
     });
-
-    if (marked > 0) {
-      console.log('[Getgems Marker] Added', marked, 'markers to cards');
-    }
   }
 
-  // Update marker on individual NFT item page
   function updateItemPageMarker() {
-    const dataCount = Object.keys(nftData).length;
-    if (dataCount === 0) return;
-
-    // Check if we're on an item page (either /collection/ADDRESS/ITEM or /nft/ADDRESS)
     const nftAddress = extractCurrentItemPageAddress();
-
     if (!nftAddress) return;
-    const info = nftData[nftAddress];
 
-    if (!info) return;
-
-    // Find the actions card on the item page
     const actionsCard = document.querySelector('.NftPageActionsCard__info') || document.querySelector('.NftPageActionsCard');
     if (!actionsCard) return;
 
+    const info = nftData[nftAddress];
     updateExactPriceDisplay(actionsCard, info);
 
-    // Check if already marked
-    if (actionsCard.querySelector('.marketplace-marker-item')) return;
-
-    console.log('[Getgems Marker] Adding marker to item page for:', info.name || nftAddress);
-    addMarkerToItemPage(actionsCard, info.marketplace);
+    const actions = actionsCard.closest('.NftPageActionsCard') || actionsCard;
+    const marketplace = detectMarketplaceInListing(actions) || info?.marketplace;
+    syncListingMarker(actionsCard, marketplace, true);
   }
 
-  function addMarkerToCard(container, marketplace) {
+  function syncListingMarker(root, marketplace, itemPage = false) {
+    const selector = itemPage ? '.marketplace-marker-item-container' : '.marketplace-marker';
+    const existing = root.querySelector(selector);
+    const presentation = listingMarketplaces.get(marketplace);
+    if (!presentation) {
+      existing?.remove();
+      return;
+    }
+    if (existing?.dataset.marketplace === marketplace) return;
+
     const marker = document.createElement('div');
-    marker.className = 'marketplace-marker';
+    marker.className = (itemPage ? 'marketplace-marker-item' : 'marketplace-marker') + ' marker-' + marketplace;
 
     const logo = document.createElement('img');
     logo.className = 'marketplace-marker-logo';
-
-    if (marketplace === 'getgems') {
-      marker.classList.add('marker-getgems');
-      logo.src = chrome.runtime.getURL('getgems.svg');
-      logo.alt = 'G';
-      marker.title = 'Listed on Getgems (0.3 TON fee)';
-    } else {
-      marker.classList.add('marker-fragment');
-      logo.src = chrome.runtime.getURL('fragment.svg');
-      logo.alt = 'F';
-      marker.title = 'Listed on Fragment (no fee)';
-    }
-
-    marker.appendChild(logo);
-    ensureCardControlsContainer(container).appendChild(marker);
-  }
-
-  function addMarkerToItemPage(actionsCard, marketplace) {
-    const markerContainer = document.createElement('div');
-    markerContainer.className = 'marketplace-marker-item-container';
-
-    const marker = document.createElement('div');
-    marker.className = 'marketplace-marker-item';
-
-    const logo = document.createElement('img');
-    logo.className = 'marketplace-marker-logo';
-
-    const label = document.createElement('span');
-    label.className = 'marketplace-marker-item-label';
-
-    if (marketplace === 'getgems') {
-      marker.classList.add('marker-getgems');
-      logo.src = chrome.runtime.getURL('getgems.svg');
-      logo.alt = 'G';
-      label.textContent = 'Listed on Getgems';
-      markerContainer.title = 'This NFT is listed on Getgems marketplace (0.3 TON fee)';
-    } else {
-      marker.classList.add('marker-fragment');
-      logo.src = chrome.runtime.getURL('fragment.svg');
-      logo.alt = 'F';
-      label.textContent = 'Listed on Fragment';
-      markerContainer.title = 'This NFT is listed on Fragment marketplace (no fee)';
-    }
-
+    logo.src = chrome.runtime.getURL(presentation.logo);
+    logo.alt = itemPage ? '' : presentation.name;
     marker.appendChild(logo);
 
-    markerContainer.appendChild(marker);
-    markerContainer.appendChild(label);
+    const text = 'Listed on ' + presentation.name;
+    let badge = marker;
+    if (itemPage) {
+      badge = document.createElement('div');
+      badge.className = 'marketplace-marker-item-container';
+      const label = document.createElement('span');
+      label.className = 'marketplace-marker-item-label';
+      label.textContent = text;
+      badge.append(marker, label);
+    }
 
-    // Insert at the beginning of the actions card info
-    actionsCard.insertBefore(markerContainer, actionsCard.firstChild);
+    badge.dataset.marketplace = marketplace;
+    badge.title = text + (presentation.fee || '');
+    if (existing) {
+      existing.replaceWith(badge);
+    } else if (itemPage) {
+      root.prepend(badge);
+    } else {
+      ensureCardControlsContainer(root).appendChild(badge);
+    }
   }
 
   console.log('[Getgems Marker] Script loaded');
