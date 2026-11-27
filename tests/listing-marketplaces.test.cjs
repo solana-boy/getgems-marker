@@ -99,6 +99,25 @@ test('collection responses identify a Telegram sale from its fee and separate sa
   assert.equal(explicitGetgems.marketplace, 'getgems');
 });
 
+test('a Telegram label in the feed does not override the signature of a Fragment listing', async () => {
+  const interceptor = createInterceptor();
+  const item = { address: nftAddress, kind: 'CollectionItem' };
+  const fragmentSale = fixedPrice({ address: nftAddress });
+
+  const initial = await interceptor.feed(collection({ ...item, sale: fragmentSale }));
+  const filtered = await interceptor.feed(collection({
+    ...item,
+    sale: { ...fragmentSale, address: rawNftAddress, marketplace: 'TELEGRAM' }
+  }));
+  const telegramSale = await interceptor.feed({
+    nft: { ...item, sale: fixedPrice({ marketplace: 'TELEGRAM' }) }
+  });
+
+  assert.equal(initial[nftAddress].marketplace, 'fragment');
+  assert.equal(filtered[nftAddress].marketplace, 'fragment');
+  assert.equal(telegramSale[nftAddress].marketplace, 'telegram');
+});
+
 test('item data updates a listing, retains its source for partial sale data, and clears it on delisting', async () => {
   const interceptor = createInterceptor();
   const item = { __typename: 'NftItem', address: nftAddress };

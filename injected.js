@@ -148,7 +148,13 @@
   function detectMarketplace(item, sale) {
     if (!sale) return null;
 
+    const networkFee = String(sale.networkFee);
     const marketplace = marketplaceNames.get(typeof sale.marketplace === 'string' ? sale.marketplace.toUpperCase() : '');
+    // Getgems can report TELEGRAM for a fee-free Fragment sale handled by the NFT contract itself.
+    if (marketplace === 'telegram' && sale.__typename === 'NftSaleFixPrice' && networkFee === '0') {
+      const nftContract = normalizeTonAddress(item.address);
+      if (nftContract && nftContract === normalizeTonAddress(sale.address)) return 'fragment';
+    }
     if (marketplace) return marketplace;
 
     // External sales can provide a purchase link without a marketplace field.
@@ -162,7 +168,6 @@
     if (!isFixedPrice) return null;
     if (item.kind === 'OffchainNft' || (sale.currency && sale.currency !== 'TON')) return 'getgems';
 
-    const networkFee = String(sale.networkFee);
     if (networkFee === '300000000') return 'getgems';
 
     // Collection search omits marketplace on fixed-price sales.
